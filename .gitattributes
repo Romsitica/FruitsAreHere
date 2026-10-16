@@ -1,0 +1,34 @@
+# ============================================================================
+# 果子来了 · Git 属性：统一行尾符，避免跨平台协作出问题
+# ============================================================================
+
+# 默认：由 git 自动识别文本文件
+* text=auto
+
+# Linux 上执行的脚本必须是 LF。若被转成 CRLF，会报
+#   bash: $'\r': command not found
+*.sh            text eol=lf
+deploy/*.service text eol=lf
+deploy/*.conf    text eol=lf
+
+# Windows 批处理必须是 CRLF
+*.bat           text eol=crlf
+*.cmd           text eol=crlf
+
+# 二进制文件不做行尾转换、不做 diff
+*.jar      binary
+*.apk      binary
+*.aab      binary
+*.keystore binary
+*.jks      binary
+*.png      binary
+*.jpg      binary
+*.jpeg     binary
+*.gif      binary
+*.ico      binary
+*.woff     binary
+*.woff2    binary
+*.ttf      binary
+
+# 语言统计：vendor 目录是第三方库，不计入仓库语言占比
+frontend/static/vendor/* linguist-vendored

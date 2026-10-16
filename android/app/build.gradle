@@ -1,0 +1,61 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace 'com.fruitsarehere.shell'
+    compileSdk 34
+
+    defaultConfig {
+        minSdk 26
+        targetSdk 34
+        versionCode 1
+        versionName '1.0.0'
+    }
+
+    // 一个工程产出两个 APK：
+    //   assembleCustomerDebug  → 客户端（会员端）
+    //   assembleMerchantDebug  → 商户端
+    flavorDimensions 'app'
+    productFlavors {
+        customer {
+            dimension 'app'
+            applicationId 'com.fruitsarehere.customer'
+            resValue 'string', 'app_name', '果子来了'
+            buildConfigField 'String', 'API_BASE', "\"${project.findProperty('customerApiBase') ?: ''}\""
+        }
+        merchant {
+            dimension 'app'
+            applicationId 'com.fruitsarehere.merchant'
+            resValue 'string', 'app_name', '果子来了商户'
+            buildConfigField 'String', 'API_BASE', "\"${project.findProperty('merchantApiBase') ?: ''}\""
+        }
+    }
+
+    buildFeatures {
+        buildConfig true
+    }
+
+    buildTypes {
+        debug {
+            applicationIdSuffix ''
+        }
+        release {
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    packagingOptions {
+        resources.excludes += ['META-INF/*.kotlin_module']
+    }
+}
+
+// 纯 WebView 壳：不依赖任何第三方库，构建最快、最不容易出问题
+dependencies {
+}

@@ -1,0 +1,85 @@
+/* ============================================================================
+ * 客户端 APP 个性化样式（组员：客户端前端）
+ * 只放「会员端专属」的样式，通用外壳样式在 mobile/shared/theme.css 里，不要重复定义。
+ * 命名前缀：ct- (customer)
+ * ==========================================================================*/
+
+/* 首页 hero */
+.ct-hero {
+  margin: var(--sp-16) var(--sp-16) 0;
+  padding: var(--sp-20);
+  border-radius: var(--r-lg);
+  background: linear-gradient(135deg, #21604a, #2f9e5f 55%, #7fc24a);
+  color: #fff;
+}
+.ct-hero h2 { margin: 0 0 var(--sp-4); font-size: 22px; font-weight: 800; }
+.ct-hero p { margin: 0; font-size: 13px; color: rgba(255, 255, 255, .86); }
+
+/* 公告 */
+.ct-notice-item { padding-top: var(--sp-12); }
+.ct-notice-item + .ct-notice-item { border-top: 1px dashed var(--c-line); margin-top: var(--sp-12); }
+.ct-notice-item b { font-size: 14px; }
+.ct-notice-item p {
+  margin: var(--sp-4) 0 0; font-size: 12.5px; color: var(--c-sub);
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+
+/* 搜索 */
+.ct-search { display: flex; gap: var(--sp-8); }
+
+/* 商品卡片 */
+.ct-goods { display: flex; gap: var(--sp-12); }
+.ct-goods-img { width: 96px; height: 96px; border-radius: var(--r-sm); object-fit: cover; flex: none; background: #eef2ee; }
+.ct-goods-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.ct-goods-main b { font-size: 15.5px; }
+.ct-goods-main p {
+  margin: var(--sp-4) 0 var(--sp-8); flex: 1; font-size: 12.5px;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+.ct-goods-foot { display: flex; align-items: baseline; gap: 6px; }
+
+/* 详情 */
+.ct-title { font-size: 20px; font-weight: 800; margin: var(--sp-8) 0; }
+.ct-price-row { display: flex; align-items: baseline; gap: 8px; margin: var(--sp-12) 0; }
+
+/* 订单卡片 */
+.ct-order-head { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-8); }
+.ct-order-head b { font-size: 15.5px; }
+.ct-order-foot {
+  display: flex; align-items: flex-end; justify-content: space-between;
+  gap: var(--sp-12); margin-top: var(--sp-8);
+}
+.ct-order-actions { display: flex; flex-direction: column; align-items: flex-end; gap: var(--sp-8); }
+
+/* 积分 */
+.ct-points-banner {
+  border-radius: var(--r-lg); padding: var(--sp-20);
+  background: linear-gradient(120deg, var(--c-leaf), #63b86b 60%, #a8cf5a);
+  color: #fff; display: flex; flex-direction: column; gap: 2px;
+}
+.ct-points-banner span { font-size: 12.5px; opacity: .9; }
+.ct-points-banner b { font-size: 30px; font-weight: 800; }
+.ct-points-banner em { font-style: normal; font-size: 11.5px; opacity: .85; }
+
+.ct-prize { display: flex; gap: var(--sp-12); }
+.ct-prize-img { width: 82px; height: 82px; border-radius: var(--r-sm); object-fit: cover; flex: none; background: #f2f5f2; }
+.ct-prize-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.ct-prize-main p { margin: var(--sp-4) 0 var(--sp-8); flex: 1; font-size: 12.5px; }
+.ct-prize-foot { display: flex; align-items: center; gap: var(--sp-8); }
+.ct-prize-foot > .fm-btn { margin-left: auto; }
+
+/* 我的 */
+.ct-me-head { display: flex; align-items: center; gap: var(--sp-12); }
+.ct-me-head b { font-size: 17px; font-weight: 700; }
+.ct-me-head p { margin: 2px 0 0; }
+.ct-avatar {
+  width: 52px; height: 52px; border-radius: var(--r-lg);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 22px; font-weight: 800; color: #fff;
+  background: linear-gradient(135deg, var(--c-brand), #ffa14a);
+}
+.ct-amount { font-size: 20px; font-weight: 800; color: var(--c-brand); }
+
+/* 流水正负 */
+.ct-up { color: var(--c-leaf); font-weight: 700; }
+.ct-down { color: var(--c-danger); font-weight: 700; }

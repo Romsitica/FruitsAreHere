@@ -1,0 +1,23 @@
+# 果子来了 · gunicorn 常驻服务
+# 由 deploy/bootstrap.sh 替换 __APP_DIR__ / __PORT__ 后写入 /etc/systemd/system/fruits.service
+[Unit]
+Description=GuoziLaile Django (gunicorn)
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=__APP_DIR__
+# 环境变量集中放在 deploy/.env（SECRET_KEY / DEBUG / ALLOWED_HOSTS / CORS 白名单）
+EnvironmentFile=__APP_DIR__/deploy/.env
+ExecStart=__APP_DIR__/.venv/bin/gunicorn fruitmall.wsgi:application \
+    --bind 127.0.0.1:__PORT__ \
+    --workers 3 \
+    --timeout 60 \
+    --access-logfile - \
+    --error-logfile -
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

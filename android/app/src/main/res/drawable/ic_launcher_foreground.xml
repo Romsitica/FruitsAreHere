@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 启动图标前景：一颗果子 + 一片叶子（自适应图标，安全区为中间 72x72） -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- 果柄 -->
+    <path
+        android:fillColor="#5A4632"
+        android:pathData="M53.2,34 L54.8,34 L54.8,24 L53.2,24 Z" />
+    <!-- 叶子 -->
+    <path
+        android:fillColor="#2F9E5F"
+        android:pathData="M55,36 C58,27 67,22.5 76,24.5 C74.5,34 64,40.5 55,36 Z" />
+    <!-- 果实 -->
+    <path
+        android:fillColor="#FF6A3D"
+        android:pathData="M54,36 a21,21 0 1,0 0.1,0 Z" />
+    <!-- 高光 -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:fillAlpha="0.35"
+        android:pathData="M45,48 a7,9 0 1,0 0.1,0 Z" />
+</vector>
