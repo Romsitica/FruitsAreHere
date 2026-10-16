@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- app_name 由 build.gradle 的 productFlavors 用 resValue 注入，两端名称不同 -->
+    <string name="web_load_failed">页面加载失败</string>
+    <string name="web_load_failed_hint">请确认已执行 python android/export_web.py 导出前端资源</string>
+</resources>

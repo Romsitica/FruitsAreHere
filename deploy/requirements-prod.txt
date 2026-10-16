@@ -1,0 +1,5 @@
+-r ../requirements.txt
+gunicorn>=21.2
+# Alibaba Cloud Linux 3 / CentOS 8 自带 SQLite 3.26，低于 Django 5 要求的 3.31，
+# 装这个包自带新版 SQLite，由 fruitmall/__init__.py 动态替换 sqlite3 模块
+pysqlite3-binary>=0.5.2; sys_platform == "linux"

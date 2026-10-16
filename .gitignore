@@ -1,13 +1,85 @@
-node_modules/
-.DS_Store
-dist/
+# ============================================================================
+# 果子来了 · Git 忽略规则
+# ============================================================================
+
+# ------------------------------------------------------------------ Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
 build/
+dist/
+.venv/
+venv/
+env/
+ENV/
+.python-version
+
+# ------------------------------------------------------------------ 数据库
+# SQLite 库含真实业务数据，绝不入库；settings.py 会自动创建目录
+*.sqlite3
+*.sqlite3-*
+*.db
+data/
+
+# ------------------------------------------------------------------ Django
+# collectstatic 的汇总产物（由 nginx 托管，可随时重建）
+staticfiles/
+media/
+local_settings.py
+
+# ------------------------------------------------------------------ 环境变量与密钥（绝不入库）
 .env
-.env.local
-*.log
+.env.*
+!.env.example
+deploy/.env
+*.pem
+*.key
+*.p12
+*.pfx
+*.keystore
+*.jks
+credentials.json
+
+# ------------------------------------------------------------------ Android / Gradle
+android/.gradle/
+android/build/
+android/app/build/
+android/dist/
+android/local.properties
+android/.idea/
+android/captures/
+.gradle/
+*.apk
+*.aab
+*.ap_
+*.dex
+*.class
+# H5 是导出产物，由 android/export_web.py 生成
+android/app/src/customer/assets/www/
+android/app/src/merchant/assets/www/
+
+# ------------------------------------------------------------------ 前端 / Node
+node_modules/
+.next/
+.nuxt/
+coverage/
+npm-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# ------------------------------------------------------------------ 编辑器 / 系统
 .vscode/
 .idea/
-__pycache__/
-*.pyc
-.next/
-coverage/
+*.iml
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ------------------------------------------------------------------ SDK / 大体积工具
+# Android SDK 命令行工具，建议放到 SDK 根目录，不要放进仓库（约 170MB）
+cmdline-tools/
+platform-tools/
