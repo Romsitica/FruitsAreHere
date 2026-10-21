@@ -18,6 +18,9 @@
     9. apksigner      用调试证书签名（首次运行自动生成 keystore）
 
 产物：android/dist/<flavor>/app-<flavor>-debug.apk
+
+
+axaax
 """
 import argparse
 import hashlib
