@@ -16,7 +16,7 @@ function setup() {
     FM: { createClient: () => client, fmtMoney: v => String(v), toast() {},
       createRouter: () => ({ state: { path: '/', query: {} }, navigate: p => calls.push(p) }) } });
   vm.runInContext(fs.readFileSync(require('node:path').join(__dirname, '../app.js'), 'utf8') +
-    '\n;globalThis.subjects = {CtHome, CtDetail, resolve, Alerts, recordOrders, readOrder, loadAccount};', context);
+    '\n;globalThis.subjects = {CtHome, CtDetail, resolve, Alerts, recordOrders, readOrder, loadAccount, CustomerAPI};', context);
   function instance(component) {
     const instance = component.data();
     for (const [name, method] of Object.entries(component.methods || {})) instance[name] = method.bind(instance);
@@ -138,4 +138,22 @@ test('confirmation badges are scoped to the current account', () => {
   s.state.user = { id: 2 };
   s.recordOrders([]);
   assert.equal(s.Alerts.ids.length, 0);
+});
+
+test('product search text cannot inject merchant scope or extra query parameters', async () => {
+  const s = setup(); let requested;
+  s.client.get = async path => { requested = path; return {}; };
+  await s.CustomerAPI.products({ keyword: '橙 &scope=all', category: '进口/时令' });
+  const query = new URLSearchParams(requested.split('?')[1]);
+  assert.equal(query.get('keyword'), '橙 &scope=all');
+  assert.equal(query.get('category'), '进口/时令');
+  assert.equal(query.has('scope'), false);
+});
+
+test('customer entry files never contain committed merge-conflict markers', () => {
+  const path = require('node:path');
+  for (const name of ['app.js', 'app.css', 'index.html']) {
+    const source = fs.readFileSync(path.join(__dirname, '..', name), 'utf8');
+    assert.doesNotMatch(source, /^(<<<<<<< |=======\s*$|>>>>>>> )/m, name);
+  }
 });
