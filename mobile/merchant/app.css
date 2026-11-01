@@ -1,7 +1,11 @@
 /* ============================================================================
  * 商户端 APP 个性化样式（组员：商户端前端）
- * 只放「商户端专属」的样式，通用外壳样式在 mobile/shared/theme.css 里，不要重复定义。
+ * 通用外壳样式在 mobile/shared/theme.css 里，不在本文件重复定义。
  * 命名前缀：mc- (merchant)
+ *
+ * 例外：本文件末尾有一整段「商户端视觉覆盖」，用重定义 :root 变量 + 少量类覆盖
+ * 的方式给商户端换肤（那一段不修改 theme.css 本身，客户端完全不受影响）。
+ * 详见文件末尾的说明。
  * ==========================================================================*/
 
 /* 搜索行 */
@@ -40,3 +44,305 @@
 .mc-amount { font-size: 20px; font-weight: 800; }
 .mc-up { color: var(--c-leaf); font-weight: 700; }
 .mc-down { color: var(--c-danger); font-weight: 700; }
+
+/* ---------------------------------------------------------------- 商品表单（新增 / 编辑共用） */
+.mc-req { color: var(--c-danger); font-style: normal; margin-left: 2px; }
+.mc-form-row { display: grid; grid-template-columns: 1fr 1fr; gap: var(--sp-12); }
+.mc-form-row .fm-field { margin-bottom: var(--sp-16); }
+.mc-form-error { margin: var(--sp-4) 0 0; font-size: 12.5px; line-height: 1.5; color: var(--c-danger); }
+.mc-hint { margin: var(--sp-4) 0 0; font-size: 12.5px; line-height: 1.5; color: var(--c-sub); }
+
+/* 主图选择区 */
+.mc-picker {
+  display: flex; align-items: center; gap: var(--sp-12);
+  padding: var(--sp-12); border: 1px dashed var(--c-line);
+  border-radius: var(--r-sm); background: #fafcfa;
+}
+.mc-picker-img { width: 84px; height: 84px; border-radius: var(--r-sm); object-fit: cover; flex: none; background: #eef2ee; }
+.mc-picker-empty {
+  width: 84px; height: 84px; border-radius: var(--r-sm); background: #eef2ee; flex: none;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 12px; color: var(--c-sub); text-align: center;
+}
+.mc-picker-btns { display: flex; flex-direction: column; gap: var(--sp-8); }
+.mc-picker-btns .fm-btn { white-space: nowrap; }
+.mc-picker-url { margin-top: var(--sp-8); }
+
+/* 真正的 file input 藏起来，由外层 label 当按钮点 */
+.mc-file { display: none; }
+
+/* 弹层底部按钮吸底：字段一多，“保存”也不会被滚出屏幕 */
+.mc-sheet-foot {
+  position: sticky; bottom: 0; z-index: 2;
+  background: var(--c-card);
+  padding-top: var(--sp-12);
+  margin-top: var(--sp-16);
+  box-shadow: 0 -10px 14px -10px rgba(20, 40, 30, .18);
+}
+
+/* ============================================================================
+ * 商户端视觉覆盖  —— 只在 /m/merchant/ 生效，客户端（mobile/customer）不受影响
+ * ----------------------------------------------------------------------------
+ * 做法：theme.css 是冻结的共享层，但它把所有颜色都写成 :root 里的 CSS 变量。
+ *      本文件在它之后加载，同优先级下「后加载者胜」，所以在下面重定义 :root
+ *      就等于给商户端换肤 —— 这正合 theme.css 开头那句
+ *      「各自 APP 只需在 app.css 里做少量个性化覆盖」。
+ *
+ * 商户端 = 经营后台，主色取叶绿（呼应 index.html 里声明的 theme-color: #2f9e5f），
+ * 与客户端的果橙区分开；橙色降级为「待我处理」的强调色，只出现在待确认订单上。
+ *
+ * ⚠ 下面第 2、3 节覆盖了几个 fm-* 共享类，和 theme.css 存在耦合。
+ *   共享层若改动，按本节注释即可整段删除，不会影响其他功能。
+ * ==========================================================================*/
+
+/* ---------------------------------------------------------------- 1. 设计令牌 */
+:root {
+  --c-brand:      #2f9e5f;   /* 主色：果橙 → 叶绿 */
+  --c-brand-dark: #237a49;
+  --c-brand-soft: #eaf7ef;
+  --c-sub:        #5c6a62;   /* 小字对比度 4.4:1 → 5.6:1 */
+  --c-line:       #e4e9e5;
+  --c-warn:       #e8791f;   /* 橙降级为「待我处理」强调色 */
+  --c-warn-soft:  #fff3e6;
+  --shell-max:    560px;     /* 后台内容多，电脑上宽一点更好用 */
+  /* 形状一致性：全套圆角只有这几档，不要再临时造第四个值
+     控件 8px(--r-sm) · 卡片 12px(--r-md) · 弹层 16px(--r-lg) · 手机框 22px */
+  --mc-r-frame:   22px;
+
+  /* 文字/填充专用的加深色（实测值见下面 8.4 的注释）：
+     品牌绿 #2f9e5f 当「文字」用时对白底只有 3.40:1，达不到 WCAG AA 的 4.5:1，
+     所以品牌色本身不动（它仍是身份色：边框、柔底、装饰、指标卡色条），
+     凡是「当文字」或「当填充底配白字」的场景一律改用下面这两个加深版。 */
+  --c-brand-ink:  #237a49;   /* 对白底 5.31:1 ✓ */
+  --c-warn-ink:   #a85a0d;   /* 对白底 5.08:1 ✓ */
+  --c-info-ink:   #2f5cb0;   /* 对 #eaf1ff 5.65:1 ✓ */
+  --c-muted-ink:  #5a6d63;   /* 对 #f0f2f0 4.91:1 ✓ */
+}
+
+/* ---------------------------------------------------------------- 2. 硬编码色 */
+/* theme.css 里这两处颜色是写死的，改令牌改不掉：不覆盖就会变成「绿底橙渐变」 */
+.fm-btn-primary {
+  background: linear-gradient(135deg, var(--c-brand), #4fb673);
+  box-shadow: 0 4px 12px rgba(47, 158, 95, .26);
+}
+
+/* ---------------------------------------------------------------- 3. 外壳细节 */
+.fm-app { box-shadow: 0 0 0 1px rgba(28, 45, 34, .06), 0 10px 30px rgba(28, 45, 34, .06); }
+.fm-navbar { box-shadow: 0 1px 0 rgba(28, 45, 34, .04); }
+.fm-card, .fm-list, .fm-stat, .fm-wallet-item, .fm-picker { box-shadow: 0 1px 2px rgba(28, 45, 34, .05); }
+
+/* 手机上 32px 的小按钮手指容易点错，商户端统一提到 36px */
+.fm-btn-sm { height: 36px; }
+
+/* 金额/数字用等宽数字，列表右边缘才不会参差不齐 */
+.fm-stat b, .fm-price, .fm-price-sm, .fm-wallet-item b, .fm-kv b,
+.mc-amount, .mc-member-money b, .mc-order-head b, .mc-goods-foot .fm-price-sm {
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------------------------------------------------------------- 4. 底部标签栏 */
+/* 共享层的 .fm-tab-dot 是 20×20 的空心方块，五个 tab 长得一样、认不出功能，
+   这里改成放 emoji 图标的容器（图标由 app.js 的 TABS.icon 提供） */
+.fm-tab { position: relative; }
+.fm-tab-dot {
+  width: 22px; height: 22px; border: none; border-radius: 0; background: transparent;
+  font-size: 19px; line-height: 1; opacity: .45;
+  display: flex; align-items: center; justify-content: center;
+}
+.fm-tab.active .fm-tab-dot { background: transparent; opacity: 1; }
+/* 待办角标（复用共享层闲置的 .fm-tab-badge），橙色表示「有待处理」
+   底色用加深版：白字压 #e8791f 只有 2.92:1，压 #a85a0d 是 5.08:1 */
+.fm-tab-badge { top: 6px; left: calc(50% + 3px); transform: none; background: var(--c-warn-ink); }
+
+/* ---------------------------------------------------------------- 5. 指标卡语义色 */
+/* 六张卡默认同为品牌绿；只让「待确认」跳成橙色，次要指标转浅绿 */
+.mc-stat--todo { border-left-color: var(--c-warn); }
+.mc-stat--todo b { color: var(--c-warn); }
+.mc-stat--soft { border-left-color: #8fc9a4; }
+
+/* ---------------------------------------------------------------- 6. 商品图兜底 */
+/* image_url 允许为空，空/失效时用这块占位，避免浏览器显示破图图标 */
+.mc-goods-img--empty {
+  display: flex; align-items: center; justify-content: center;
+  font-size: 11px; color: var(--c-sub); background: #eef2ee;
+}
+
+/* ============================================================================
+ * 7. 电脑端呈现：把商户端做成一部「手机」
+ * ----------------------------------------------------------------------------
+ * 只在视口 ≥620px（电脑/平板横屏）生效；真机 ≤620px 完全不受影响，仍是全屏 APP。
+ * 为什么要连 .fm-tabbar / .fm-mask / .fm-sheet 一起改：
+ *   这三者用的是 position: fixed（相对视口定位），手机框一旦有外边距，
+ *   它们就会跑到手机框外面去，所以必须收进框内。
+ * ==========================================================================*/
+@media (min-width: 620px) {
+  html, body {
+    background-color: #e3eae4;
+    background-image: radial-gradient(120% 90% at 50% 0%, #eef3ee 0%, #e0e8e1 60%, #d6dfd8 100%);
+    background-attachment: fixed;
+  }
+
+  .fm-app {
+    height: calc(100vh - 52px);   /* 回退：老浏览器不认 dvh */
+    height: calc(100dvh - 52px);  /* 移动端地址栏收起时不会跳（见 §3.E） */
+    min-height: 0;              /* 必须覆盖共享层的 min-height:100vh，否则高度不生效 */
+    margin: 26px auto;
+    border-radius: var(--mc-r-frame);
+    overflow-x: hidden;
+    overflow-y: auto;           /* 让「手机」自己滚，导航栏和标签栏才能贴住框边 */
+    display: flex; flex-direction: column;
+    box-shadow: 0 24px 60px rgba(24, 40, 30, .18), 0 0 0 1px rgba(28, 45, 34, .07);
+  }
+  /* 让内容撑满，标签栏才会落在框底而不是悬在半空 */
+  .fm-body { flex: 1; padding-bottom: var(--sp-16); }
+
+  .fm-tabbar {
+    position: sticky; bottom: 0; flex: none;
+    left: auto; transform: none; width: 100%; max-width: none;
+    border-radius: 0 0 var(--mc-r-frame) var(--mc-r-frame);
+  }
+
+  .fm-mask {
+    top: 26px; bottom: 26px; right: auto; left: 50%;
+    width: 100%; max-width: var(--shell-max); transform: translateX(-50%);
+    border-radius: var(--mc-r-frame);
+  }
+  .fm-sheet {
+    bottom: 26px; border-radius: var(--mc-r-frame);
+    max-height: calc(82vh - 52px);
+    max-height: calc(82dvh - 52px);
+    box-shadow: 0 -12px 40px rgba(24, 40, 30, .22);
+  }
+  .fm-toast { max-width: min(80vw, 420px); }
+}
+
+/* ============================================================================
+ * 8. 通用质量闸门
+ * ----------------------------------------------------------------------------
+ * 这一节跟「落地页」无关，是任何界面都该满足的硬性质量项，
+ * 也是用 design-taste-frontend 审计后发现的真实缺陷：
+ *   ① 键盘焦点不可见  ② 没处理「减少动效」  ③ input 的焦点提示太弱
+ * 依旧只作用于商户端（本文件的 :root 覆盖同理，不进共享层）。
+ * ==========================================================================*/
+
+/* 8.1 键盘焦点可见
+   theme.css 把 input/select/textarea 的 outline 关掉了，只留一圈 1px 边框变色；
+   按钮、分类、标签则完全依赖浏览器默认焦点圈，风格不统一。
+   这里给商户端补一套统一的焦点环（用 :focus-visible，鼠标点击不触发，不干扰触屏） */
+.fm-btn:focus-visible,
+.fm-chip:focus-visible,
+.fm-tab:focus-visible,
+.fm-back:focus-visible,
+.fm-input:focus-visible,
+.fm-select:focus-visible,
+.fm-textarea:focus-visible {
+  outline: 2px solid var(--c-brand);
+  outline-offset: 2px;
+}
+/* 输入类再叠一层柔光环：光靠 1px 边框变色，键盘用户很难定位 */
+.fm-input:focus-visible,
+.fm-select:focus-visible,
+.fm-textarea:focus-visible {
+  border-color: var(--c-brand);
+  box-shadow: 0 0 0 3px var(--c-brand-soft);
+}
+
+/* 8.2 按压反馈 + 悬停
+   theme.css 只给了 .fm-btn 按压效果，分类 chip 和底部 tab 漏了 */
+.fm-tab, .fm-chip { transition: color .15s, border-color .15s, transform .1s; }
+.fm-tab:active, .fm-chip:active { transform: scale(.98); }
+@media (hover: hover) and (pointer: fine) {
+  .fm-chip:not(.active):hover { border-color: var(--c-brand); color: var(--c-brand); }
+  .fm-tab:not(.active):hover { color: var(--c-ink); }
+}
+
+/* 8.3 减少动效（无障碍必做）
+   骨架屏在无限闪烁、提示条有入场动画、按钮有按压缩放，这些都要能关掉 */
+@media (prefers-reduced-motion: reduce) {
+  .fm-skeleton { animation: none; background: #eef1ee; }
+  .fm-toast, .fm-toast-out { animation: none; transition: none; }
+  .fm-btn, .fm-tab, .fm-chip { transition: none; }
+  .fm-btn:active, .fm-tab:active, .fm-chip:active { transform: none; }
+  .fm-sheet, .fm-mask { transition: none; }
+}
+
+/* ============================================================================
+ * 8.4 对比度修正（WCAG AA 4.5:1）
+ * ----------------------------------------------------------------------------
+ * 用 WCAG 相对亮度公式实测了 13 组「文字/底色」，改之前 11 组不达标。
+ * 最严重的几组（改前 → 改后）：
+ *   主按钮 白字压品牌绿        3.40:1 → 5.31:1
+ *   主按钮 白字压渐变亮端      2.54:1 → 5.31:1
+ *   订单角标 白字压橙底        2.92:1 → 5.08:1
+ *   待确认数字 橙字压白卡      2.92:1 → 5.08:1
+ *   徽章 已取消 灰字压灰底     2.44:1 → 4.91:1
+ *   徽章 待确认 橙字压浅橙底    2.67:1 → 4.65:1
+ * 其中多数是共享层 .fm-badge / .fm-btn 的固有问题（原来的果橙更差：2.84:1），
+ * 这里只修商户端。建议同步反馈给共享层负责人，让客户端也一起修。
+ * ==========================================================================*/
+
+/* 填充类：换成加深色，白字才立得住 */
+.fm-btn-primary {
+  background: linear-gradient(135deg, #1c6b3f, var(--c-brand-ink));  /* 6.51:1 → 5.31:1 */
+  box-shadow: 0 4px 12px rgba(35, 122, 73, .22);
+}
+.fm-chip.active { background: var(--c-brand-ink); border-color: var(--c-brand-ink); }
+
+/* 文字类：同样换加深色（品牌绿留给边框/色条/柔底继续当身份色） */
+.fm-btn-ghost, .fm-tab.active { color: var(--c-brand-ink); }
+.fm-price, .fm-price-sm { color: var(--c-brand-ink); }
+.mc-stat--todo b { color: var(--c-warn-ink); }
+.mc-stat--todo { border-left-color: var(--c-warn); }   /* 色条是装饰，保持品牌琥珀 */
+
+/* 徽章：四组文字色全部加深 */
+.fm-badge.is-ok, .fm-badge.is-brand { color: var(--c-brand-ink); }
+.fm-badge.is-warn { color: var(--c-warn-ink); }
+.fm-badge.is-info { color: var(--c-info-ink); }
+.fm-badge.is-muted { color: var(--c-muted-ink); }
+
+/* ============================================================================
+ * 9. 本轮新增功能用到的样式（组员 A 待办：删除商品 / 公告·奖品增删改 /
+ *    兑换取消退积分 / 订单批量处理）
+ * ==========================================================================*/
+
+/* 列表页顶部工具栏（发布公告 / 新增奖品） */
+.mc-toolbar { display: flex; justify-content: flex-end; margin-bottom: var(--sp-12); }
+
+/* 卡片内的操作按钮行（公告的编辑/删除、兑换的确认/取消） */
+.mc-card-actions { display: flex; gap: var(--sp-8); margin-top: var(--sp-12); justify-content: flex-end; }
+
+/* 奖品行要放 3 个按钮：允许换行让按钮独占第二行，
+   否则奖品名会被挤成竖排 */
+.fm-row.mc-row--actions { flex-wrap: wrap; }
+.mc-row-actions {
+  flex-basis: 100%; display: flex; gap: var(--sp-8);
+  justify-content: flex-end; padding-top: var(--sp-8);
+}
+
+/* 奖品无图兜底（与商品列表的「无图」一致） */
+.mc-thumb--empty {
+  display: flex; align-items: center; justify-content: center;
+  font-size: 14px; color: var(--c-sub); background: var(--c-line);
+}
+
+/* 订单多选：勾选框 + 选中卡片描边 */
+.mc-pick {
+  flex: none; width: 20px; height: 20px; border-radius: 6px;
+  border: 2px solid var(--c-line); background: var(--c-card);
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: 13px; font-weight: 700; line-height: 1; color: #fff;
+}
+.mc-pick.is-on { background: var(--c-brand-ink); border-color: var(--c-brand-ink); }
+.mc-card--picked { box-shadow: inset 0 0 0 2px var(--c-brand-ink); }
+
+/* 批量操作条：导航栏本身是 sticky top:0，这里紧跟其下 */
+.mc-batch-bar {
+  position: sticky; top: calc(var(--nav-h) + var(--safe-top)); z-index: 19;
+  display: flex; align-items: center; gap: var(--sp-8);
+  padding: var(--sp-12) var(--sp-16);
+  background: var(--c-warn-soft);
+  border-top: 1px solid var(--c-line);
+  border-bottom: 1px solid var(--c-line);
+}
+.mc-batch-count { flex: 1; font-size: 13px; color: var(--c-ink); font-variant-numeric: tabular-nums; }
+.mc-batch-bar .fm-btn { flex: none; }
