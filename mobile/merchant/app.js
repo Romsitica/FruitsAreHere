@@ -5,9 +5,10 @@
  * 归属目录：mobile/merchant/**            ← 只改这个目录里的文件
  * 只读依赖：mobile/shared/api.js、mobile/shared/theme.css（共享层，不要改）
  *
- * 已完成（可直接跑通）：商户登录、经营概览、预约订单流转（确认/完成/取消）、
- *                     商品上下架与编辑、会员余额增减、公告与奖品只读列表
- * 待组员完善：见文件末尾 TODO 清单
+ * 已完成（可直接跑通）：商户登录、经营概览（6 项指标）、预约订单流转（确认/完成/取消）、
+ *                     商品新增/编辑/上下架（含主图拍照、预览与直链）、商品分类筛选、
+ *                     会员余额与积分流水、公告与奖品只读列表
+ * 待办：见文件末尾 TODO 清单
  * ==========================================================================*/
 const api = FM.createClient({ tokenKey: 'fm_merchant_token' });
 const Auth = api.state;
@@ -26,11 +27,11 @@ const ROUTES = [
 ];
 
 const TABS = [
-  { path: '/', label: '概览' },
-  { path: '/orders', label: '订单' },
-  { path: '/products', label: '商品' },
-  { path: '/members', label: '会员' },
-  { path: '/more', label: '更多' },
+  { path: '/', label: '概览', icon: '\u{1F4CA}' },
+  { path: '/orders', label: '订单', icon: '\u{1F9FE}' },
+  { path: '/products', label: '商品', icon: '\u{1F34E}' },
+  { path: '/members', label: '会员', icon: '\u{1F465}' },
+  { path: '/more', label: '更多', icon: '\u{2699}\u{FE0F}' },
 ];
 
 function resolve(path) {
@@ -76,14 +77,18 @@ const McOverview = {
       <div class="fm-navbar-title">经营概览<span class="fm-navbar-sub">{{ Auth.user ? Auth.user.nickname : '' }}</span></div>
       <div class="fm-navbar-actions"><button class="fm-btn fm-btn-sm" @click="load">刷新</button></div>
     </header>
-    <div v-if="loading" class="fm-loading">正在加载经营数据…</div>
+    <div v-if="loading" class="fm-section">
+      <div class="fm-skeleton" v-for="n in 4" :key="n"></div>
+    </div>
     <template v-else-if="stats">
       <div class="fm-section">
         <div class="fm-stat-grid">
           <div class="fm-stat"><span>累计营收</span><b>{{ fmtMoney(stats.salesCents) }}</b><em>已完成订单</em></div>
-          <div class="fm-stat"><span>待确认预约</span><b>{{ stats.pendingCount }}</b><em>共 {{ stats.orderCount }} 笔订单</em></div>
+          <div class="fm-stat mc-stat--todo"><span>待确认预约</span><b>{{ stats.pendingCount }}</b><em>共 {{ stats.orderCount }} 笔订单</em></div>
           <div class="fm-stat"><span>会员数量</span><b>{{ stats.memberCount }}</b><em>余额合计 {{ fmtMoney(stats.balanceCents) }}</em></div>
-          <div class="fm-stat"><span>在售商品</span><b>{{ stats.productOnCount }}</b><em>已下架 {{ stats.productOffCount }} 款</em></div>
+          <div class="fm-stat mc-stat--soft"><span>在售商品</span><b>{{ stats.productOnCount }}</b><em>已下架 {{ stats.productOffCount }} 款</em></div>
+          <div class="fm-stat"><span>已完成订单</span><b>{{ stats.completedCount }}</b><em>待取货 {{ stats.confirmedCount }} 单</em></div>
+          <div class="fm-stat mc-stat--soft"><span>累计发放积分</span><b>{{ stats.pointsIssued }}</b><em>兑换记录 {{ stats.redemptionCount }} 笔</em></div>
         </div>
       </div>
 
@@ -91,7 +96,11 @@ const McOverview = {
         <button class="fm-btn fm-btn-sm fm-btn-ghost" @click="go('/orders')">全部</button>
       </div>
       <div class="fm-section">
-        <div v-if="!pending.length" class="fm-empty"><p>暂无待确认预约</p></div>
+        <div v-if="!pending.length" class="fm-empty">
+          <div class="fm-empty-ring"></div>
+          <p>暂时没有待确认的预约</p>
+          <p>顾客在会员端下单后，会出现在这里等你确认</p>
+        </div>
         <div class="fm-list" v-else>
           <div class="fm-row" v-for="order in pending" :key="order.id">
             <div class="fm-row-main">
@@ -122,7 +131,7 @@ const McOverview = {
 
 /* ============================================================ 预约订单 */
 const McOrders = {
-  data() { return { orders: [], status: 'pending', keyword: '', loading: true, detail: null, tabs: ORDER_TABS }; },
+  data() { return { orders: [], status: 'pending', keyword: '', loading: true, detail: null, tabs: ORDER_TABS, pickMode: false, selected: [], batchBusy: false }; },
   created() { this.load(); },
   methods: {
     fmtMoney: FM.fmtMoney,
@@ -148,13 +157,85 @@ const McOrders = {
         FM.toast(e.message, 'danger');
       }
     },
+
+    /* ------------------------------------------------ 批量处理
+     * 后端只有单条接口 POST /merchant/orders/<id>/status，
+     * 所以批量是「前端多选 + 逐条循环」，任何一条失败都不影响其它条，
+     * 最后汇总告诉店主成功几笔、失败几笔。
+     */
+    enterPick() { this.pickMode = true; this.selected = []; this.detail = null; },
+    exitPick() { this.pickMode = false; this.selected = []; },
+    isPicked(order) { return this.selected.indexOf(order.id) >= 0; },
+    togglePick(order) {
+      const i = this.selected.indexOf(order.id);
+      if (i >= 0) this.selected.splice(i, 1);
+      else this.selected.push(order.id);
+    },
+    /** 按后端规则判断某单能否流转到目标状态，避免必然失败的请求 */
+    eligibleFor(order, status) {
+      if (status === 'confirmed') return order.status === 'pending';
+      return order.status === 'pending' || order.status === 'confirmed';
+    },
+    selectAll() {
+      const ids = this.orders
+        .filter((o) => this.eligibleFor(o, 'confirmed') || this.eligibleFor(o, 'completed'))
+        .map((o) => o.id);
+      this.selected = ids;
+      if (!ids.length) FM.toast('当前列表没有可批量处理的订单', 'danger');
+    },
+    async batch(status, label) {
+      if (this.batchBusy) return;
+      const picked = this.orders.filter((o) => this.selected.indexOf(o.id) >= 0 && this.eligibleFor(o, status));
+      if (!picked.length) {
+        FM.toast('选中的订单当前状态不能「' + label + '」', 'danger');
+        return;
+      }
+      if (!window.confirm('将选中的 ' + picked.length + ' 笔订单批量' + label + '？')) return;
+
+      this.batchBusy = true;
+      let done = 0;
+      let firstError = '';
+      for (const order of picked) {
+        try {
+          await api.post('/merchant/orders/' + order.id + '/status', { status });
+          done += 1;
+        } catch (e) {
+          if (!firstError) firstError = e.message;
+        }
+      }
+      this.batchBusy = false;
+
+      if (done) FM.toast('已' + label + ' ' + done + ' 笔');
+      if (done < picked.length) {
+        FM.toast((picked.length - done) + ' 笔失败' + (firstError ? '：' + firstError : ''), 'danger');
+      }
+      this.exitPick();
+      this.load();
+    },
+    /** 切换状态标签时清空多选，避免把上一页的单子带过去 */
+    switchStatus(value) { this.status = value; this.exitPick(); this.load(); },
   },
   template: `
   <div>
-    <header class="fm-navbar"><div class="fm-navbar-title">预约订单</div></header>
+    <header class="fm-navbar">
+      <div class="fm-navbar-title">预约订单</div>
+      <div class="fm-navbar-actions">
+        <button v-if="!pickMode" class="fm-btn fm-btn-sm" @click="enterPick">批量</button>
+        <button v-else class="fm-btn fm-btn-sm fm-btn-primary" @click="exitPick">退出批量</button>
+      </div>
+    </header>
     <div class="fm-chips">
       <button v-for="item in tabs" :key="item[0]" :class="['fm-chip', status === item[0] ? 'active' : '']"
-              @click="status = item[0]; load()">{{ item[1] }}</button>
+              @click="switchStatus(item[0])">{{ item[1] }}</button>
+    </div>
+
+    <div class="mc-batch-bar" v-if="pickMode">
+      <button class="fm-btn fm-btn-sm" @click="selectAll">全选</button>
+      <span class="mc-batch-count">已选 {{ selected.length }} 笔</span>
+      <button class="fm-btn fm-btn-sm fm-btn-primary" :disabled="batchBusy"
+              @click="batch('confirmed', '确认')">{{ batchBusy ? '处理中…' : '批量确认' }}</button>
+      <button class="fm-btn fm-btn-sm fm-btn-leaf" :disabled="batchBusy"
+              @click="batch('completed', '完成')">批量完成</button>
     </div>
     <form class="fm-section mc-search" @submit.prevent="load">
       <input class="fm-input" v-model.trim="keyword" placeholder="订单号 / 商品 / 手机号">
@@ -162,10 +243,19 @@ const McOrders = {
     </form>
 
     <div class="fm-section">
-      <div v-if="loading" class="fm-loading">正在加载…</div>
-      <div v-else-if="!orders.length" class="fm-empty"><div class="fm-empty-ring"></div><p>暂无订单</p></div>
-      <div class="fm-card" v-for="order in orders" :key="order.id" @click="detail = order">
+      <div v-if="loading" class="fm-section">
+        <div class="fm-skeleton" v-for="n in 4" :key="n"></div>
+      </div>
+      <div v-else-if="!orders.length" class="fm-empty">
+        <div class="fm-empty-ring"></div>
+        <p>这个状态下还没有订单</p>
+        <p>切换上方的状态标签，可以查看其他状态的订单</p>
+      </div>
+      <div class="fm-card" v-for="order in orders" :key="order.id"
+           :class="{ 'mc-card--picked': pickMode && isPicked(order) }"
+           @click="pickMode ? togglePick(order) : (detail = order)">
         <div class="mc-order-head">
+          <span class="mc-pick" v-if="pickMode" :class="{ 'is-on': isPicked(order) }">{{ isPicked(order) ? '✓' : '' }}</span>
           <b>{{ order.orderNo }}</b>
           <span class="fm-badge" :class="statusClass(order.status)">{{ order.statusText }}</span>
         </div>
@@ -208,11 +298,15 @@ const McOrders = {
 const McProducts = {
   data() {
     return {
-      products: [], categories: [], keyword: '', loading: true,
-      editing: null, saving: false,
+      products: [], categories: [], keyword: '', category: '', loading: true,
+      formOpen: false, mode: 'create', form: null, errors: {}, saving: false,
+      uploading: false, previewUrl: '',
     };
   },
   created() { this.load(); },
+  computed: {
+    formTitle() { return this.mode === 'create' ? '新增商品' : '编辑商品'; },
+  },
   methods: {
     fmtMoney: FM.fmtMoney,
     centsToYuan: FM.centsToYuan,
@@ -222,6 +316,7 @@ const McProducts = {
       try {
         const q = new URLSearchParams({ scope: 'all' });
         if (this.keyword) q.set('keyword', this.keyword);
+        if (this.category) q.set('category', this.category);
         const data = await api.get('/products?' + q.toString());
         this.products = data.products;
         this.categories = data.categories || [];
@@ -229,16 +324,180 @@ const McProducts = {
         FM.toast(e.message, 'danger');
       } finally { this.loading = false; }
     },
-    openEdit(product) {
-      this.editing = {
-        id: product.id, name: product.name, category: product.category,
-        priceYuan: this.centsToYuan(product.priceCents), unit: product.unit,
-        stock: product.stock, status: product.status, description: product.description,
-        imageUrl: product.imageUrl,
+
+    /** 点分类 chip 筛选；传空串表示全部 */
+    pickCategory(name) { this.category = name; this.load(); },
+
+    /* -------------------------------------------- 新增 / 编辑 共用表单 */
+    blankForm() {
+      return {
+        id: null, name: '', category: '时令鲜果', priceYuan: '', originPriceYuan: '',
+        unit: '份', stock: 0, status: 'on', description: '', imageUrl: '',
       };
     },
-    notImplemented() {
-      FM.toast('新增商品待完善：见 app.js 末尾 TODO P0-1', 'danger');
+    openCreate() {
+      this.mode = 'create';
+      this.form = this.blankForm();
+      this.errors = {};
+      this.previewUrl = '';
+      this.formOpen = true;
+    },
+    openEdit(product) {
+      this.mode = 'edit';
+      this.form = {
+        id: product.id,
+        name: product.name,
+        category: product.category,
+        priceYuan: this.centsToYuan(product.priceCents),
+        originPriceYuan: product.originPriceCents ? this.centsToYuan(product.originPriceCents) : '',
+        unit: product.unit,
+        stock: product.stock,
+        status: product.status,
+        description: product.description || '',
+        imageUrl: product.imageUrl || '',
+      };
+      this.errors = {};
+      this.previewUrl = product.imageUrl || '';
+      this.formOpen = true;
+    },
+    closeForm() {
+      if (this.saving || this.uploading) return;
+      this.formOpen = false;
+      this.form = null;
+      this.errors = {};
+      this.previewUrl = '';
+    },
+
+    /* -------------------------------------------- 前端校验（后端还会再校验一次） */
+    validate() {
+      const f = this.form;
+      const errors = {};
+      const name = String(f.name || '').trim();
+      if (!name) errors.name = '请填写商品名称';
+      else if (name.length > 64) errors.name = '名称不能超过 64 个字';
+
+      if (f.priceYuan === '' || f.priceYuan === null || f.priceYuan === undefined || isNaN(Number(f.priceYuan))) {
+        errors.priceYuan = '请填写售价';
+      } else if (Number(f.priceYuan) < 0) {
+        errors.priceYuan = '售价不能为负数';
+      }
+
+      if (f.originPriceYuan !== '' && f.originPriceYuan !== null && f.originPriceYuan !== undefined) {
+        if (isNaN(Number(f.originPriceYuan)) || Number(f.originPriceYuan) < 0) {
+          errors.originPriceYuan = '划线价不能为负数';
+        }
+      }
+
+      const stockRaw = String(f.stock === null || f.stock === undefined ? '' : f.stock).trim();
+      const stock = stockRaw === '' ? 0 : Number(stockRaw);
+      if (!Number.isInteger(stock) || stock < 0) errors.stock = '库存必须是 0 或正整数';
+
+      if (String(f.category || '').length > 32) errors.category = '分类不能超过 32 个字';
+      if (String(f.unit || '').length > 32) errors.unit = '规格单位不能超过 32 个字';
+      if (String(f.description || '').length > 2000) errors.description = '商品详情不能超过 2000 个字';
+      if (String(f.imageUrl || '').length > 512) errors.imageUrl = '图片地址不能超过 512 个字符';
+
+      this.errors = errors;
+      const count = Object.keys(errors).length;
+      if (count) {
+        FM.toast('还有 ' + count + ' 处需要修正', 'danger');
+        return false;
+      }
+      return true;
+    },
+
+    /* -------------------------------------------- 提交：新增 POST / 编辑 PUT */
+    async save() {
+      if (!this.validate()) return;
+      const f = this.form;
+      const stockRaw = String(f.stock === null || f.stock === undefined ? '' : f.stock).trim();
+      const payload = {
+        name: String(f.name || '').trim(),
+        category: String(f.category || '').trim() || '时令鲜果',
+        priceCents: this.yuanToCents(f.priceYuan),
+        originPriceCents: (f.originPriceYuan === '' || f.originPriceYuan === null || f.originPriceYuan === undefined)
+          ? 0 : this.yuanToCents(f.originPriceYuan),
+        unit: String(f.unit || '').trim() || '份',
+        stock: stockRaw === '' ? 0 : Number(stockRaw),
+        status: f.status === 'off' ? 'off' : 'on',
+        description: String(f.description || '').trim(),
+        imageUrl: String(f.imageUrl || '').trim(),
+      };
+      this.saving = true;
+      try {
+        if (this.mode === 'create') {
+          await api.post('/merchant/products', payload);
+        } else {
+          await api.put('/merchant/products/' + f.id, payload);
+        }
+        FM.toast(this.mode === 'create'
+          ? (payload.status === 'on' ? '商品已上架' : '已保存，暂未上架')
+          : '商品已更新');
+        this.formOpen = false;
+        this.form = null;
+        this.previewUrl = '';
+        this.load();
+      } catch (e) {
+        FM.toast(e.message, 'danger');
+      } finally { this.saving = false; }
+    },
+
+    /* -------------------------------------------- 主图：拍照 / 相册 / 直链 */
+    pickImage(event) {
+      const input = event.target;
+      const file = input.files && input.files[0];
+      input.value = '';                       // 清空，允许连续选同一张图
+      if (!file) return;
+      if (!/^image\//.test(file.type)) { FM.toast('请选择图片文件', 'danger'); return; }
+      if (file.size > 5 * 1024 * 1024) { FM.toast('图片不能超过 5MB', 'danger'); return; }
+
+      const reader = new FileReader();        // 先本地出预览，店家立刻能看到效果
+      reader.onload = () => { this.previewUrl = String(reader.result || ''); };
+      reader.readAsDataURL(file);
+
+      this.uploadImage(file);
+    },
+
+    /**
+     * 上传主图。
+     * 注意：共享层的 api.post 会把 body 强制 JSON 序列化，传不了文件，
+     * 所以这里用原生 fetch + FormData，并手动带上 Authorization。
+     * 后端 POST /merchant/upload 就绪后，本函数不用再改（只换 UI 文案）。
+     */
+    async uploadImage(file) {
+      this.uploading = true;
+      try {
+        const fd = new FormData();
+        fd.append('file', file);
+        const base = String(api.config.baseUrl || '/api').replace(/\/+$/, '');
+        const headers = { Accept: 'application/json' };
+        if (api.state.token) headers.Authorization = 'Bearer ' + api.state.token;
+        const res = await fetch(base + '/merchant/upload', { method: 'POST', headers: headers, body: fd });
+
+        // 严格校验：接口没上线时不会返回干净的 404 ——
+        // fruitmall/urls.py 末尾有一条万能兜底路由，未知的 POST 会返回 405 + HTML，
+        // 所以不能只看 res.ok，必须确认拿到的是 { ok: true, url } 这种真响应。
+        let data = null;
+        try { data = await res.json(); } catch (err) { data = null; }
+        if (!res.ok || !data || data.ok !== true || !data.url) {
+          throw new Error((data && data.ok === false && data.error) ? data.error : 'NOT_READY');
+        }
+
+        this.form.imageUrl = data.url;
+        this.previewUrl = data.url;
+        FM.toast('图片已上传');
+      } catch (e) {
+        const msg = String((e && e.message) || '');
+        FM.toast(msg === 'NOT_READY'
+          ? '图片上传功能还没上线（后端 /merchant/upload 未提供），请先把图片地址粘到输入框'
+          : msg, 'danger');
+      } finally { this.uploading = false; }
+    },
+
+    /** 手动粘贴图片地址后同步预览 */
+    useUrl() {
+      const url = String(this.form.imageUrl || '').trim();
+      if (url) this.previewUrl = url;
     },
     async toggle(product) {
       const next = product.status === 'on' ? 'off' : 'on';
@@ -248,25 +507,23 @@ const McProducts = {
         this.load();
       } catch (e) { FM.toast(e.message, 'danger'); }
     },
-    async save() {
-      const form = this.editing;
-      this.saving = true;
+
+    /**
+     * 删除商品（DELETE /merchant/products/<id>/delete）
+     * 不可恢复；已有销售记录的商品会额外提醒——历史订单不会消失，
+     * 但商品下架比删除更能保住数据，所以默认把这条建议写进确认框。
+     */
+    async remove(product) {
+      const sold = Number(product.sales) || 0;
+      const extra = sold > 0
+        ? '\n\n该商品已有 ' + sold + ' 笔销售记录。删除后历史订单仍在，但看不到商品信息了，建议改为「下架」。'
+        : '';
+      if (!window.confirm('确定删除「' + product.name + '」？\n此操作不可恢复。' + extra)) return;
       try {
-        await api.put('/merchant/products/' + form.id, {
-          name: form.name,
-          category: form.category,
-          priceCents: this.yuanToCents(form.priceYuan),
-          unit: form.unit,
-          stock: Number(form.stock) || 0,
-          status: form.status,
-          description: form.description,
-        });
-        FM.toast('商品已更新');
-        this.editing = null;
+        await api.del('/merchant/products/' + product.id + '/delete');
+        FM.toast('商品已删除');
         this.load();
-      } catch (e) {
-        FM.toast(e.message, 'danger');
-      } finally { this.saving = false; }
+      } catch (e) { FM.toast(e.message, 'danger'); }
     },
   },
   template: `
@@ -274,18 +531,36 @@ const McProducts = {
     <header class="fm-navbar">
       <div class="fm-navbar-title">商品管理</div>
       <div class="fm-navbar-actions">
-        <button class="fm-btn fm-btn-sm fm-btn-primary" @click="notImplemented">+ 新增</button>
+        <button class="fm-btn fm-btn-sm fm-btn-primary" @click="openCreate">+ 新增</button>
       </div>
     </header>
     <form class="fm-section mc-search" @submit.prevent="load">
-      <input class="fm-input" v-model.trim="keyword" placeholder="搜索商品">
+      <input class="fm-input" v-model.trim="keyword" placeholder="商品名称 / 描述关键词">
       <button class="fm-btn" type="submit">搜索</button>
     </form>
 
+    <div class="fm-chips" v-if="categories.length">
+      <button :class="['fm-chip', category === '' ? 'active' : '']" @click="pickCategory('')">全部</button>
+      <button v-for="name in categories" :key="name"
+              :class="['fm-chip', category === name ? 'active' : '']" @click="pickCategory(name)">{{ name }}</button>
+    </div>
+
     <div class="fm-section">
-      <div v-if="loading" class="fm-loading">正在加载商品…</div>
+      <div v-if="loading" class="fm-section">
+        <div class="fm-skeleton" v-for="n in 4" :key="n"></div>
+      </div>
+      <div v-else-if="!products.length" class="fm-empty">
+        <div class="fm-empty-ring"></div>
+        <p v-if="keyword || category">没有找到匹配的商品，换个关键词或分类试试</p>
+        <template v-else>
+          <p>店铺里还没有商品</p>
+          <button class="fm-btn fm-btn-sm fm-btn-primary" @click="openCreate">+ 上架第一款水果</button>
+        </template>
+      </div>
       <div v-else class="fm-card mc-goods" v-for="item in products" :key="item.id">
-        <img class="mc-goods-img" :src="item.imageUrl" :alt="item.name" loading="lazy">
+        <img v-if="item.imageUrl" class="mc-goods-img" :src="item.imageUrl" :alt="item.name"
+             loading="lazy" @error="item.imageUrl = ''">
+        <div v-else class="mc-goods-img mc-goods-img--empty">无图</div>
         <div class="mc-goods-main">
           <div class="mc-goods-head">
             <b>{{ item.name }}</b>
@@ -296,34 +571,105 @@ const McProducts = {
           <p class="fm-muted">{{ item.category }} · {{ item.unit }}</p>
           <div class="mc-goods-foot">
             <span class="fm-price-sm">{{ fmtMoney(item.priceCents) }}</span>
+            <span class="fm-origin" v-if="item.originPriceCents">{{ fmtMoney(item.originPriceCents) }}</span>
             <span class="fm-muted">库存 {{ item.stock }} · 已售 {{ item.sales }}</span>
           </div>
           <div class="mc-goods-actions">
             <button class="fm-btn fm-btn-sm" @click="toggle(item)">{{ item.status === 'on' ? '下架' : '上架' }}</button>
             <button class="fm-btn fm-btn-sm" @click="openEdit(item)">编辑</button>
+            <button class="fm-btn fm-btn-sm fm-btn-danger" @click="remove(item)">删除</button>
           </div>
         </div>
       </div>
     </div>
 
-    <div class="fm-mask" v-if="editing" @click="editing = null"></div>
-    <div class="fm-sheet" v-if="editing">
-      <h3 class="fm-sheet-title">编辑商品</h3>
-      <div class="fm-field"><label class="fm-label">名称</label><input class="fm-input" v-model.trim="editing.name"></div>
-      <div class="fm-field"><label class="fm-label">分类</label><input class="fm-input" v-model.trim="editing.category"></div>
-      <div class="fm-field"><label class="fm-label">售价（元）</label><input class="fm-input" type="number" step="0.01" v-model="editing.priceYuan"></div>
-      <div class="fm-field"><label class="fm-label">库存</label><input class="fm-input" type="number" v-model="editing.stock"></div>
-      <div class="fm-field"><label class="fm-label">规格单位</label><input class="fm-input" v-model.trim="editing.unit"></div>
+    <div class="fm-mask" v-if="formOpen" @click="closeForm"></div>
+    <div class="fm-sheet" v-if="formOpen && form">
+      <h3 class="fm-sheet-title">{{ formTitle }}</h3>
+
       <div class="fm-field">
-        <label class="fm-label">状态</label>
-        <select class="fm-select" v-model="editing.status">
-          <option value="on">上架</option><option value="off">下架</option>
+        <label class="fm-label">商品主图</label>
+        <div class="mc-picker">
+          <img v-if="previewUrl" class="mc-picker-img" :src="previewUrl" alt="主图预览" @error="previewUrl = ''">
+          <div v-else class="mc-picker-empty">还没有图片</div>
+          <div class="mc-picker-btns">
+            <label class="fm-btn fm-btn-sm fm-btn-primary">
+              {{ uploading ? '上传中…' : '拍照' }}
+              <input class="mc-file" type="file" accept="image/*" capture="environment" :disabled="uploading" @change="pickImage">
+            </label>
+            <label class="fm-btn fm-btn-sm">
+              从相册选
+              <input class="mc-file" type="file" accept="image/*" :disabled="uploading" @change="pickImage">
+            </label>
+          </div>
+        </div>
+        <input class="fm-input mc-picker-url" v-model.trim="form.imageUrl" @change="useUrl"
+               placeholder="或粘贴图片地址：http://…">
+        <p class="mc-hint">支持 jpg / png / webp，单张不超过 5MB</p>
+        <p class="mc-form-error" v-if="errors.imageUrl">{{ errors.imageUrl }}</p>
+      </div>
+
+      <div class="fm-field">
+        <label class="fm-label">商品名称 <em class="mc-req">*</em></label>
+        <input class="fm-input" v-model.trim="form.name" maxlength="64" placeholder="例：红颜草莓 500g">
+        <p class="mc-form-error" v-if="errors.name">{{ errors.name }}</p>
+      </div>
+
+      <div class="mc-form-row">
+        <div class="fm-field">
+          <label class="fm-label">售价（元）<em class="mc-req">*</em></label>
+          <input class="fm-input" type="number" step="0.01" min="0" v-model="form.priceYuan" placeholder="0.00">
+          <p class="mc-form-error" v-if="errors.priceYuan">{{ errors.priceYuan }}</p>
+        </div>
+        <div class="fm-field">
+          <label class="fm-label">划线价（元）</label>
+          <input class="fm-input" type="number" step="0.01" min="0" v-model="form.originPriceYuan" placeholder="选填">
+          <p class="mc-form-error" v-if="errors.originPriceYuan">{{ errors.originPriceYuan }}</p>
+        </div>
+      </div>
+
+      <div class="mc-form-row">
+        <div class="fm-field">
+          <label class="fm-label">库存</label>
+          <input class="fm-input" type="number" min="0" step="1" v-model="form.stock">
+          <p class="mc-form-error" v-if="errors.stock">{{ errors.stock }}</p>
+        </div>
+        <div class="fm-field">
+          <label class="fm-label">规格单位</label>
+          <input class="fm-input" v-model.trim="form.unit" maxlength="32" placeholder="份 / 斤 / 盒">
+          <p class="mc-form-error" v-if="errors.unit">{{ errors.unit }}</p>
+        </div>
+      </div>
+
+      <div class="fm-field">
+        <label class="fm-label">分类</label>
+        <input class="fm-input" v-model.trim="form.category" maxlength="32" list="mc-category-list" placeholder="时令鲜果">
+        <datalist id="mc-category-list">
+          <option v-for="name in categories" :key="name" :value="name"></option>
+        </datalist>
+        <p class="mc-form-error" v-if="errors.category">{{ errors.category }}</p>
+      </div>
+
+      <div class="fm-field">
+        <label class="fm-label">上架状态</label>
+        <select class="fm-select" v-model="form.status">
+          <option value="on">立即上架（客户端可见）</option>
+          <option value="off">先存为下架</option>
         </select>
       </div>
-      <div class="fm-field"><label class="fm-label">商品详情</label><textarea class="fm-textarea" v-model.trim="editing.description"></textarea></div>
-      <div class="fm-sheet-foot">
-        <button class="fm-btn" @click="editing = null">取消</button>
-        <button class="fm-btn fm-btn-primary" :disabled="saving" @click="save">{{ saving ? '保存中…' : '保存' }}</button>
+
+      <div class="fm-field">
+        <label class="fm-label">商品详情</label>
+        <textarea class="fm-textarea" v-model.trim="form.description" maxlength="2000" placeholder="产地、口感、保存方式…"></textarea>
+        <p class="mc-hint">{{ (form.description || '').length }}/2000</p>
+        <p class="mc-form-error" v-if="errors.description">{{ errors.description }}</p>
+      </div>
+
+      <div class="fm-sheet-foot mc-sheet-foot">
+        <button class="fm-btn" :disabled="saving || uploading" @click="closeForm">取消</button>
+        <button class="fm-btn fm-btn-primary" :disabled="saving || uploading" @click="save">
+          {{ saving ? '保存中…' : (mode === 'create' ? '保存' : '保存修改') }}
+        </button>
       </div>
     </div>
   </div>`,
@@ -389,8 +735,14 @@ const McMembers = {
     </form>
 
     <div class="fm-section">
-      <div v-if="loading" class="fm-loading">正在加载会员…</div>
-      <div v-else-if="!members.length" class="fm-empty"><p>暂无会员</p></div>
+      <div v-if="loading" class="fm-section">
+        <div class="fm-skeleton" v-for="n in 4" :key="n"></div>
+      </div>
+      <div v-else-if="!members.length" class="fm-empty">
+        <div class="fm-empty-ring"></div>
+        <p>还没有会员</p>
+        <p>顾客在会员端用手机号注册后，就会出现在这里</p>
+      </div>
       <div class="fm-card mc-member" v-for="member in members" :key="member.id">
         <div class="mc-member-head">
           <div>
@@ -451,6 +803,21 @@ const McMembers = {
         </div>
         <div class="fm-row" v-if="!detailData.balanceLogs.length"><div class="fm-row-main"><p class="fm-row-desc">暂无流水</p></div></div>
       </div>
+      <h4 class="fm-card-title">积分流水</h4>
+      <div class="fm-list">
+        <div class="fm-row" v-for="log in detailData.pointsLogs" :key="log.id">
+          <div class="fm-row-main">
+            <p class="fm-row-title">{{ log.reason }}</p>
+            <p class="fm-row-desc">{{ log.createdAt }} · {{ log.operator }}</p>
+          </div>
+          <div class="fm-row-side">
+            <b :class="log.change > 0 ? 'mc-up' : 'mc-down'">
+              {{ log.change > 0 ? '+' : '' }}{{ log.change }}
+            </b>
+          </div>
+        </div>
+        <div class="fm-row" v-if="!detailData.pointsLogs.length"><div class="fm-row-main"><p class="fm-row-desc">暂无积分流水</p></div></div>
+      </div>
       <div class="fm-sheet-foot"><button class="fm-btn fm-btn-block" @click="detail = null; detailData = null">关闭</button></div>
     </div>
   </div>`,
@@ -458,7 +825,7 @@ const McMembers = {
 
 /* ============================================================ 更多（公告 / 奖品 / 兑换） */
 const McMore = {
-  data() { return { tab: 'notice', notices: [], prizes: [], redemptions: [], loading: true }; },
+  data() { return { tab: 'notice', notices: [], prizes: [], redemptions: [], loading: true, noticeForm: null, noticeMode: 'create', noticeSaving: false, prizeForm: null, prizeMode: 'create', prizeSaving: false }; },
   created() { this.load(); },
   methods: {
     async load() {
@@ -484,6 +851,117 @@ const McMore = {
         this.load();
       } catch (e) { FM.toast(e.message, 'danger'); }
     },
+
+    /** 兑换「取消」：后端会在事务里退还积分并归还奖品库存 */
+    async cancelRedemption(item) {
+      if (!window.confirm('取消「' + item.prizeName + '」的兑换？\n'
+        + item.costPoints + ' 积分会退还给 ' + item.memberName + '，奖品库存 +1。')) return;
+      try {
+        await api.post('/redemptions/' + item.id + '/status', { status: 'cancelled' });
+        FM.toast('已取消并退还积分');
+        this.load();
+      } catch (e) { FM.toast(e.message, 'danger'); }
+    },
+
+    /* ---------------------------------------------- 公告增删改 */
+    openNoticeCreate() {
+      this.noticeMode = 'create';
+      this.noticeForm = { id: null, title: '', content: '' };
+    },
+    openNoticeEdit(item) {
+      this.noticeMode = 'edit';
+      this.noticeForm = { id: item.id, title: item.title, content: item.content || '' };
+    },
+    closeNoticeForm() { if (this.noticeSaving) return; this.noticeForm = null; },
+    async saveNotice() {
+      const f = this.noticeForm;
+      const title = String(f.title || '').trim();
+      const content = String(f.content || '').trim();
+      if (!title) { FM.toast('请填写公告标题', 'danger'); return; }
+      if (title.length > 128) { FM.toast('标题不能超过 128 个字', 'danger'); return; }
+      if (content.length > 2000) { FM.toast('内容不能超过 2000 个字', 'danger'); return; }
+      this.noticeSaving = true;
+      try {
+        if (this.noticeMode === 'create') {
+          await api.post('/merchant/announcements', { title: title, content: content });
+        } else {
+          await api.put('/merchant/announcements/' + f.id, { title: title, content: content });
+        }
+        FM.toast(this.noticeMode === 'create' ? '公告已发布' : '公告已更新');
+        this.noticeForm = null;
+        this.load();
+      } catch (e) {
+        FM.toast(e.message, 'danger');
+      } finally { this.noticeSaving = false; }
+    },
+    async removeNotice(item) {
+      if (!window.confirm('删除公告「' + item.title + '」？')) return;
+      try {
+        await api.del('/merchant/announcements/' + item.id + '/delete');
+        FM.toast('公告已删除');
+        this.load();
+      } catch (e) { FM.toast(e.message, 'danger'); }
+    },
+
+    /* ---------------------------------------------- 奖品增删改 */
+    openPrizeCreate() {
+      this.prizeMode = 'create';
+      this.prizeForm = { id: null, name: '', costPoints: '', stock: 0, description: '', imageUrl: '', status: 'on' };
+    },
+    openPrizeEdit(p) {
+      this.prizeMode = 'edit';
+      this.prizeForm = {
+        id: p.id, name: p.name, costPoints: p.costPoints, stock: p.stock,
+        description: p.description || '', imageUrl: p.imageUrl || '', status: p.status,
+      };
+    },
+    closePrizeForm() { if (this.prizeSaving) return; this.prizeForm = null; },
+    async savePrize() {
+      const f = this.prizeForm;
+      const name = String(f.name || '').trim();
+      const cost = Number(f.costPoints);
+      const stockRaw = String(f.stock === null || f.stock === undefined ? '' : f.stock).trim();
+      const stock = stockRaw === '' ? 0 : Number(stockRaw);
+      if (!name) { FM.toast('请填写奖品名称', 'danger'); return; }
+      if (name.length > 64) { FM.toast('名称不能超过 64 个字', 'danger'); return; }
+      if (!Number.isInteger(cost) || cost < 1) { FM.toast('所需积分必须是 1 以上的整数', 'danger'); return; }
+      if (!Number.isInteger(stock) || stock < 0) { FM.toast('库存必须是 0 或正整数', 'danger'); return; }
+      if (String(f.description || '').length > 255) { FM.toast('说明不能超过 255 个字', 'danger'); return; }
+      if (String(f.imageUrl || '').length > 512) { FM.toast('图片地址不能超过 512 个字符', 'danger'); return; }
+      const payload = {
+        name: name, costPoints: cost, stock: stock,
+        description: String(f.description || '').trim(),
+        imageUrl: String(f.imageUrl || '').trim(),
+        status: f.status === 'off' ? 'off' : 'on',
+      };
+      this.prizeSaving = true;
+      try {
+        if (this.prizeMode === 'create') await api.post('/merchant/prizes', payload);
+        else await api.put('/merchant/prizes/' + f.id, payload);
+        FM.toast(this.prizeMode === 'create' ? '奖品已创建' : '奖品已更新');
+        this.prizeForm = null;
+        this.load();
+      } catch (e) {
+        FM.toast(e.message, 'danger');
+      } finally { this.prizeSaving = false; }
+    },
+    async togglePrize(p) {
+      const next = p.status === 'on' ? 'off' : 'on';
+      try {
+        await api.put('/merchant/prizes/' + p.id, { status: next });
+        FM.toast(next === 'on' ? '已上架' : '已下架');
+        this.load();
+      } catch (e) { FM.toast(e.message, 'danger'); }
+    },
+    async removePrize(p) {
+      if (!window.confirm('删除奖品「' + p.name + '」？\n已有的兑换记录不会消失。')) return;
+      try {
+        await api.del('/merchant/prizes/' + p.id + '/delete');
+        FM.toast('奖品已删除');
+        this.load();
+      } catch (e) { FM.toast(e.message, 'danger'); }
+    },
+
     async logout() {
       await api.logout();
       FM.toast('已退出登录');
@@ -499,21 +977,35 @@ const McMore = {
       <button :class="['fm-chip', tab === 'exchange' ? 'active' : '']" @click="tab = 'exchange'">兑换 {{ redemptions.length }}</button>
     </div>
     <div class="fm-section">
-      <div v-if="loading" class="fm-loading">正在加载…</div>
+      <div v-if="loading" class="fm-section">
+        <div class="fm-skeleton" v-for="n in 4" :key="n"></div>
+      </div>
       <template v-else>
         <template v-if="tab === 'notice'">
+          <div class="mc-toolbar">
+            <button class="fm-btn fm-btn-sm fm-btn-primary" @click="openNoticeCreate">+ 发布公告</button>
+          </div>
           <div class="fm-card" v-for="item in notices" :key="item.id">
             <b>{{ item.title }}</b>
             <p class="fm-muted" style="margin:6px 0 0">{{ item.content }}</p>
             <p class="fm-muted">{{ item.createdAt }}</p>
+            <div class="mc-card-actions">
+              <button class="fm-btn fm-btn-sm" @click="openNoticeEdit(item)">编辑</button>
+              <button class="fm-btn fm-btn-sm fm-btn-danger" @click="removeNotice(item)">删除</button>
+            </div>
           </div>
-          <div class="fm-empty" v-if="!notices.length"><p>暂无公告</p></div>
+          <div class="fm-empty" v-if="!notices.length"><p>还没有发布公告</p><p>点上面的「发布公告」，顾客会在会员端首页看到</p></div>
         </template>
 
         <template v-else-if="tab === 'prize'">
+          <div class="mc-toolbar">
+            <button class="fm-btn fm-btn-sm fm-btn-primary" @click="openPrizeCreate">+ 新增奖品</button>
+          </div>
           <div class="fm-list">
-            <div class="fm-row" v-for="prize in prizes" :key="prize.id">
-              <img class="fm-thumb" :src="prize.imageUrl" :alt="prize.name">
+            <div class="fm-row mc-row--actions" v-for="prize in prizes" :key="prize.id">
+              <img v-if="prize.imageUrl" class="fm-thumb" :src="prize.imageUrl" :alt="prize.name"
+                   loading="lazy" @error="prize.imageUrl = ''">
+              <div v-else class="fm-thumb mc-thumb--empty">礼</div>
               <div class="fm-row-main">
                 <p class="fm-row-title">{{ prize.name }}</p>
                 <p class="fm-row-desc">{{ prize.costPoints }} 积分 · 剩余 {{ prize.stock }}</p>
@@ -521,8 +1013,14 @@ const McMore = {
               <span class="fm-badge" :class="prize.status === 'on' ? 'is-ok' : 'is-muted'">
                 {{ prize.status === 'on' ? '可兑换' : '已下架' }}
               </span>
+              <div class="mc-row-actions">
+                <button class="fm-btn fm-btn-sm" @click="togglePrize(prize)">{{ prize.status === 'on' ? '下架' : '上架' }}</button>
+                <button class="fm-btn fm-btn-sm" @click="openPrizeEdit(prize)">编辑</button>
+                <button class="fm-btn fm-btn-sm fm-btn-danger" @click="removePrize(prize)">删除</button>
+              </div>
             </div>
           </div>
+          <div class="fm-empty" v-if="!prizes.length"><p>还没有奖品</p><p>点上面的「新增奖品」，顾客就能用积分兑换了</p></div>
         </template>
 
         <template v-else>
@@ -535,14 +1033,83 @@ const McMore = {
             </div>
             <p class="fm-muted">{{ item.memberName }} · {{ item.memberPhone }} · {{ item.costPoints }} 积分</p>
             <p class="fm-muted">{{ item.createdAt }}</p>
-            <button v-if="item.status === 'pending'" class="fm-btn fm-btn-sm fm-btn-primary" @click="issue(item)">确认发放</button>
+            <div class="mc-card-actions" v-if="item.status === 'pending'">
+              <button class="fm-btn fm-btn-sm fm-btn-primary" @click="issue(item)">确认发放</button>
+              <button class="fm-btn fm-btn-sm fm-btn-danger" @click="cancelRedemption(item)">取消并退积分</button>
+            </div>
           </div>
-          <div class="fm-empty" v-if="!redemptions.length"><p>暂无兑换记录</p></div>
+          <div class="fm-empty" v-if="!redemptions.length"><p>还没有兑换记录</p><p>顾客用积分兑换商品后，会记录在这里</p></div>
         </template>
       </template>
     </div>
     <div class="fm-section">
       <button class="fm-btn fm-btn-danger fm-btn-block" @click="logout">退出登录</button>
+    </div>
+
+    <!-- 公告编辑弹层 -->
+    <div class="fm-mask" v-if="noticeForm" @click="closeNoticeForm"></div>
+    <div class="fm-sheet" v-if="noticeForm">
+      <h3 class="fm-sheet-title">{{ noticeMode === 'create' ? '发布公告' : '编辑公告' }}</h3>
+      <div class="fm-field">
+        <label class="fm-label">标题 <em class="mc-req">*</em></label>
+        <input class="fm-input" v-model.trim="noticeForm.title" maxlength="128"
+               placeholder="例：本周新到阳山水蜜桃">
+        <p class="mc-hint">{{ (noticeForm.title || '').length }}/128</p>
+      </div>
+      <div class="fm-field">
+        <label class="fm-label">内容</label>
+        <textarea class="fm-textarea" v-model.trim="noticeForm.content" maxlength="2000"
+                  placeholder="活动时间、优惠内容、到货情况…"></textarea>
+        <p class="mc-hint">{{ (noticeForm.content || '').length }}/2000</p>
+      </div>
+      <div class="fm-sheet-foot mc-sheet-foot">
+        <button class="fm-btn" :disabled="noticeSaving" @click="closeNoticeForm">取消</button>
+        <button class="fm-btn fm-btn-primary" :disabled="noticeSaving" @click="saveNotice">
+          {{ noticeSaving ? '保存中…' : (noticeMode === 'create' ? '发布' : '保存修改') }}
+        </button>
+      </div>
+    </div>
+
+    <!-- 奖品编辑弹层 -->
+    <div class="fm-mask" v-if="prizeForm" @click="closePrizeForm"></div>
+    <div class="fm-sheet" v-if="prizeForm">
+      <h3 class="fm-sheet-title">{{ prizeMode === 'create' ? '新增奖品' : '编辑奖品' }}</h3>
+      <div class="fm-field">
+        <label class="fm-label">奖品名称 <em class="mc-req">*</em></label>
+        <input class="fm-input" v-model.trim="prizeForm.name" maxlength="64"
+               placeholder="例：一箱红富士苹果">
+      </div>
+      <div class="mc-form-row">
+        <div class="fm-field">
+          <label class="fm-label">所需积分 <em class="mc-req">*</em></label>
+          <input class="fm-input" type="number" min="1" step="1" v-model="prizeForm.costPoints" placeholder="500">
+        </div>
+        <div class="fm-field">
+          <label class="fm-label">库存</label>
+          <input class="fm-input" type="number" min="0" step="1" v-model="prizeForm.stock">
+        </div>
+      </div>
+      <div class="fm-field">
+        <label class="fm-label">图片地址</label>
+        <input class="fm-input" v-model.trim="prizeForm.imageUrl" maxlength="512" placeholder="选填，粘贴图片链接">
+      </div>
+      <div class="fm-field">
+        <label class="fm-label">兑换状态</label>
+        <select class="fm-select" v-model="prizeForm.status">
+          <option value="on">可兑换（会员端可见）</option>
+          <option value="off">暂不开放</option>
+        </select>
+      </div>
+      <div class="fm-field">
+        <label class="fm-label">说明</label>
+        <textarea class="fm-textarea" v-model.trim="prizeForm.description" maxlength="255" placeholder="选填"></textarea>
+      </div>
+      <div class="fm-sheet-foot mc-sheet-foot">
+        <button class="fm-btn" :disabled="prizeSaving" @click="closePrizeForm">取消</button>
+        <button class="fm-btn fm-btn-primary" :disabled="prizeSaving" @click="savePrize">
+          {{ prizeSaving ? '保存中…' : (prizeMode === 'create' ? '创建' : '保存修改') }}
+        </button>
+      </div>
     </div>
   </div>`,
 };
@@ -593,7 +1160,7 @@ const McAuth = {
 
 /* ============================================================ 根组件 */
 const App = {
-  data() { return { Auth, R, resolved: { route: ROUTES[0], params: {} }, tabs: TABS }; },
+  data() { return { Auth, R, resolved: { route: ROUTES[0], params: {} }, tabs: TABS, pendingCount: 0 }; },
   computed: {
     view() {
       if (!Auth.user || !Auth.user.isMerchant) return 'mc-auth';
@@ -602,8 +1169,22 @@ const App = {
     showTab() { return !!Auth.user && Auth.user.isMerchant && R.path !== '/auth'; },
     activeTab() { return R.path; },
   },
-  created() { router.onStart((r) => { this.resolved = resolve(r.path); }); },
-  methods: { go(path) { router.navigate(path); } },
+  created() {
+    router.onStart((r) => { this.resolved = resolve(r.path); this.loadBadge(); });
+    this.loadBadge();
+  },
+  methods: {
+    go(path) { router.navigate(path); },
+    // 「订单」标签上的待确认角标（复用共享层的 .fm-tab-badge）。
+    // 它只是提示，失败就静默忽略，不弹错误打扰店主。
+    async loadBadge() {
+      if (!Auth.user || !Auth.user.isMerchant) return;
+      try {
+        const res = await api.get('/merchant/stats');
+        this.pendingCount = (res.stats && res.stats.pendingCount) || 0;
+      } catch (e) { /* 静默 */ }
+    },
+  },
   template: `
   <div class="fm-app">
     <div class="fm-body">
@@ -612,7 +1193,8 @@ const App = {
     <nav class="fm-tabbar" v-if="showTab">
       <button v-for="tab in tabs" :key="tab.path"
               :class="['fm-tab', activeTab === tab.path ? 'active' : '']" @click="go(tab.path)">
-        <span class="fm-tab-dot"></span>{{ tab.label }}
+        <span class="fm-tab-dot">{{ tab.icon }}</span>{{ tab.label }}
+        <span class="fm-tab-badge" v-if="tab.path === '/orders' && pendingCount > 0">{{ pendingCount > 99 ? '99+' : pendingCount }}</span>
       </button>
     </nav>
   </div>`,
@@ -633,21 +1215,33 @@ const App = {
 /* ============================================================================
  * TODO（商户端前端组员，按优先级）
  * ----------------------------------------------------------------------------
- * P0 核心业务闭环
- *   1) 新增商品：POST /merchant/products
- *      { name, category, priceCents, originPriceCents, unit, stock, description, imageUrl, status }
- *      当前入口按钮只是提示，需要把 McProducts 的表单抽成「新增/编辑」通用弹层。
- *   2) 商品图片：目前只能手填 imageUrl。移动端应支持拍照上传，
- *      需后端同学先提供 POST /merchant/upload（multipart）→ 返回 { url }，再在此接入。
- *   3) 删除商品：DELETE /merchant/products/<id>/delete（注意有历史订单的商品不建议删，改为下架）
- * P1 运营能力
- *   4) 公告增删改：POST/PUT/DELETE /merchant/announcements（当前 McMore 只有只读列表）
- *   5) 奖品增删改：POST/PUT/DELETE /merchant/prizes（含 costPoints、stock 编辑）
- *   6) 兑换「取消并退还积分」：POST /redemptions/<id>/status { status:'cancelled' }
- *   7) 订单批量处理：列表加多选 + 批量确认/完成（后端现有接口是单条，可循环调用）
- * P2 经营分析
- *   8) 概览页加营收趋势图（需后端补 /merchant/stats/trend 提供按天营收）
- *   9) 订单列表支持按日期筛选（需后端 /orders 增加 dateFrom/dateTo 参数）
+ * 本轮已完成（组员 A）
+ *   ✅ 新增商品：McProducts 已抽成「新增 / 编辑」共用表单，POST /merchant/products
+ *   ✅ 编辑商品补齐 originPriceCents（划线价）与 imageUrl（主图）——原来界面里没有这两个字段
+ *   ✅ 主图拍照 / 相册选择 + 本地即时预览 + 图片直链兜底
+ *   ✅ 商品分类筛选（复用 GET /products 已返回的 categories）
+ *   ✅ 概览页补齐 completedCount / confirmedCount / pointsIssued / redemptionCount
+ *   ✅ 会员明细补齐积分流水（pointsLogs）
+ *   ✅ 视觉换肤：主色由果橙改为叶绿（与客户端区分），电脑端呈现为「手机」模型
+ *   ✅ 标签栏加图标 + 「订单」待确认角标；加载态改骨架屏；指标卡分主次；商品空图兜底
+ *
+ * 本轮已完成（组员 A，第二批：照「分工与协作.md」的待办清单逐条落地）
+ *   ✅ P0 删除商品：商品卡加「删除」，DELETE /merchant/products/<id>/delete
+ *      已有销售记录的商品会额外提醒「建议改为下架」，避免误删丢数据
+ *   ✅ P1 公告增删改：McMore 公告页加「+ 发布公告」，每张卡片加「编辑 / 删除」
+ *      POST /merchant/announcements、PUT·DELETE /merchant/announcements/<id>
+ *   ✅ P1 奖品增删改：McMore 奖品页加「+ 新增奖品」，每行加「上架·下架 / 编辑 / 删除」
+ *      POST /merchant/prizes、PUT /merchant/prizes/<id>、DELETE …/<id>/delete
+ *   ✅ P1 兑换取消退积分：兑换页加「取消并退积分」
+ *      POST /redemptions/<id>/status { status:'cancelled' }（退还与库存回滚由后端事务完成）
+ *   ✅ P1 订单批量处理：订单页「批量」进入多选态，全选 + 批量确认 / 批量完成
+ *      后端只有单条接口，前端逐条循环，单条失败不影响其它单，结束后汇总提示
+ *
+ * 待办（按优先级）——以下三条都卡在后端接口，不在前端
+ * P0 商品主图真正上传：需 POST /merchant/upload（multipart，字段名 file，返回 { url }）
+ *      （前端接线口已留好：McProducts.uploadImage()，接口一到位即可跑通，UI 不用改）
+ * P2 概览页加营收趋势图（需后端补 /merchant/stats/trend 提供按天营收）
+ * P2 订单列表支持按日期筛选（需后端 /orders 增加 dateFrom/dateTo 参数）
  *
  * 只允许改：mobile/merchant/**。共享层 mobile/shared/** 只读，
  * 需要新增通用能力请先在群里同步，不要复制一份改过的共享层副本。
