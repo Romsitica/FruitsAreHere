@@ -94,7 +94,7 @@ class Command(BaseCommand):
             member.balance_cents = 20000
             member.points = 120
             member.save(update_fields=["balance_cents", "points"])
-            self.stdout.write(self.style.SUCCESS("创建演示会员 13900000001 / 123456（余额 ¥200，积分 120）"))
+            self.stdout.write(self.style.SUCCESS("创建演示会员 13900000001 / 123456（余额 200 元，积分 120）"))
 
         if not Product.objects.exists():
             for name, category, price, origin, unit, stock, desc, prompt in PRODUCTS:

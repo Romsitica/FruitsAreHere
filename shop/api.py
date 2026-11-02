@@ -341,7 +341,7 @@ def order_status(request, order_id):
         if order is None:
             raise ApiError("订单不存在", status=404)
         if order.status in (Order.STATUS_COMPLETED, Order.STATUS_CANCELLED):
-            raise ApiError(f"订单已{order.status_text}，不能再变更")
+            raise ApiError(f"订单{order.status_text}，不能再变更")
 
         if target == Order.STATUS_CONFIRMED:
             if order.status != Order.STATUS_PENDING:
@@ -387,7 +387,7 @@ def order_cancel(request, order_id):
         if order.user_id != user.id and not user.is_merchant:
             raise ApiError("无权操作该订单", status=403)
         if order.status in (Order.STATUS_COMPLETED, Order.STATUS_CANCELLED):
-            raise ApiError(f"订单已{order.status_text}，无法取消")
+            raise ApiError(f"订单{order.status_text}，无法取消")
 
         order.status = Order.STATUS_CANCELLED
         _restore_stock(order)
@@ -516,7 +516,7 @@ def redemption_status(request, redemption_id):
         if item is None:
             raise ApiError("兑换记录不存在", status=404)
         if item.status != Redemption.STATUS_PENDING:
-            raise ApiError(f"该兑换记录已{item.status_text}")
+            raise ApiError(f"该兑换记录{item.status_text}")
 
         item.status = target
         if target == Redemption.STATUS_CANCELLED:
