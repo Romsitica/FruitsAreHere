@@ -64,7 +64,7 @@ python -m venv .venv
 
 ---
 
-## 4. 接口总表（30 个）
+## 4. 接口总表（31 个）
 
 前缀统一 `/api`。鉴权列：**公开** = 无需令牌；**登录** = 带令牌；**商户** = 令牌 + 商户角色。
 
@@ -98,7 +98,7 @@ python -m venv .venv
 
 | 方法 | 路径 | 鉴权 | 入参 | 返回 |
 |---|---|---|---|---|
-| GET | `/orders` | 登录 | `?status=pending\|confirmed\|completed\|cancelled\|all[&keyword=]` | `{orders[]}` |
+| GET | `/orders` | 登录 | `?status=pending\|confirmed\|completed\|cancelled\|all[&keyword=][&dateFrom=YYYY-MM-DD&dateTo=YYYY-MM-DD]` | `{orders[]}` |
 | POST | `/orders` | 登录 | `productId, quantity, pickupTime, payMethod('balance'\|'onsite'), note?` | `{order}` |
 | GET | `/orders/<id>` | 登录 | — | `{order}` |
 | POST | `/orders/<id>/cancel` | 登录 | — | `{order}` |
@@ -141,14 +141,19 @@ python -m venv .venv
 
 客户端首页只展示最新 3 条（前端截取前 3 条即可，接口返回 50 条）。
 
-### 4.7 概览与健康检查
+### 4.7 概览、上传与健康检查
 
-| 方法 | 路径 | 鉴权 | 返回 |
-|---|---|---|---|
-| GET | `/merchant/stats` | 商户 | `{stats:{...}}` |
-| GET | `/health` | 公开 | `{ok:true, service, time}` |
+| 方法 | 路径 | 鉴权 | 入参 | 返回 |
+|---|---|---|---|---|
+| GET | `/merchant/stats` | 商户 | `?days=7`（1..90，默认 7） | `{stats:{...}}` |
+| GET | `/health` | 公开 | — | `{ok:true, service, time}` |
+| POST | `/merchant/upload` | 商户 | multipart，字段 `file`，jpg/png/webp/gif，≤5MB | `{url, size, contentType}` |
 
-`stats` 字段：`memberCount, productOnCount, productOffCount, orderCount, pendingCount, confirmedCount, completedCount, salesCents, balanceCents, pointsIssued, redemptionCount, topProducts[{id,name,sales,stock}]`。
+`stats` 字段：`memberCount, productOnCount, productOffCount, orderCount, pendingCount, confirmedCount, completedCount, salesCents, balanceCents, pointsIssued, redemptionCount, topProducts[{id,name,sales,stock}], revenueTrend[{date,salesCents,orderCount}], trendDays`。
+
+`revenueTrend` 是**连续日期序列**（缺失日期补 0，从早到晚），长度等于 `days`，最后一项是今天——直接拿去画折线，不用自己补日期。
+
+**上传接口**：`multipart/form-data`，字段名 `file`（也接受 `image`）。只认文件头，伪装成图片的脚本会被 400 拒掉；文件名由服务端生成，返回的 `url` 形如 `/media/uploads/20261104_641ce70d5b48.png`，直接写进商品的 `imageUrl` 即可。生产环境由 nginx 托管 `/media/`。
 
 ---
 
@@ -232,9 +237,10 @@ pending（待确认） ──确认──> confirmed（已确认） ──完成
 
 | 需求 | 现状 | 处理方式 |
 |---|---|---|
-| 商户端「拍照/选图上传」 | **没有**上传接口，只有 `imageUrl` 字符串 | 先用外链图片；要上传请提需求，后端补 `POST /merchant/upload`（multipart） |
 | 商品/订单/会员列表分页 | 接口全量返回；`/orders`、`/redemptions` 硬上限 300 条 | 数据量小先不分页；要分页需后端加 `page/pageSize` 并改统一响应 |
 | 登录态自动续期 | 令牌**无过期时间**，只有 logout 才失效 | 前端按「长期有效」处理；需要过期/续期要先改后端 |
+
+> 2026-11-04 已落地：**图片上传**（`POST /merchant/upload`）、**营收趋势**（`/merchant/stats?days=N` 的 `revenueTrend`）、**订单日期筛选**（`/orders?dateFrom=&dateTo=`）。这三项现在可以直接做，不用再提需求。
 
 ### P2 · 体验优化
 
@@ -244,7 +250,7 @@ pending（待确认） ──确认──> confirmed（已确认） ──完成
 
 ## 8. 验收清单
 
-以下步骤后端已逐条实测（42 项断言全过），前端做完后按同样路径自查。
+以下步骤后端已逐条实测（**62 项断言全过**，2026-11-04），前端做完后按同样路径自查。
 
 ### 客户端 APP
 
@@ -270,6 +276,10 @@ pending（待确认） ──确认──> confirmed（已确认） ──完成
 | 6 | 会员管理 → 给会员充值 50 元 | 余额 +5000 分；流水出现「商户调整余额」 |
 | 7 | 给会员扣 9999 元 | 400，提示不能为负数 |
 | 8 | 发布公告 | 客户端首页最新 3 条里出现 |
+| 9 | 新增商品时点「上传图片」选一张 jpg/png | 返回 `/media/uploads/...`，商品卡片能显示该图 |
+| 10 | 上传一个改名为 `.png` 的文本文件 | 400，提示只支持 jpg/png/webp/gif |
+| 11 | 概览页看营收趋势 | 折线有 7 个点（可切 30 天），无订单的日期显示 0 |
+| 12 | 订单列表按日期筛选（今天 / 未来某天） | 今天有数据；未来日期为空；非法日期提示格式错误 |
 
 ### PC 版
 
@@ -311,3 +321,18 @@ pending（待确认） ──确认──> confirmed（已确认） ──完成
 | 3 | 错误文案「订单已已完成」「该兑换记录已已发放」 | `status_text` 本身带「已」，外层又拼了一个 | 去掉外层「已」（3 处）；实测文案为「订单已完成，不能再变更」 |
 
 后端实测：42 项 E2E 断言全通过（登录/鉴权/越权/下单/余额扣减/库存扣减与回滚/积分发放/兑换/公告/概览/下架拦截/404 契约）。
+
+---
+
+## 12. 新增能力（2026-11-04，分支 `Backend`）
+
+| 能力 | 接口 | 说明 |
+|---|---|---|
+| 图片上传 | `POST /merchant/upload` | multipart，字段 `file`；按文件头校验类型；≤5MB；文件名服务端生成；返回 `{url, size, contentType}` |
+| 营收趋势 | `GET /merchant/stats?days=N` | 返回 `stats.revenueTrend`，连续日期序列、缺日补 0，默认 7 天、最多 90 天 |
+| 订单日期筛选 | `GET /orders?dateFrom=&dateTo=` | `YYYY-MM-DD`，格式错或起止颠倒返回 400 |
+
+配套改动：`MEDIA_URL=/media/`、`MEDIA_ROOT=media/`（已在 `.gitignore`）、开发期由 Django 托管、生产由 nginx 的 `/media/` location 托管（`deploy/nginx.conf` 与 `bootstrap.sh` 已同步建目录）。
+
+后端实测：**62/62** 断言通过（新增 20 项覆盖上传鉴权/伪装文件拒绝/回读图片、日期筛选与非法参数、趋势长度与字段）。
+
