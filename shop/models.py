@@ -67,6 +67,7 @@ class Product(models.Model):
     sales = models.IntegerField("已售", default=0)
     description = models.TextField("商品详情", blank=True)
     image_url = models.CharField("主图", max_length=512, blank=True)
+    images = models.JSONField("图集", default=list, blank=True)
     status = models.CharField("状态", max_length=8, default=STATUS_ON)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -92,6 +93,7 @@ class Product(models.Model):
             "sales": self.sales,
             "description": self.description,
             "imageUrl": self.image_url,
+            "images": self.images or [],
             "status": self.status,
             "createdAt": self.created_at.strftime("%Y-%m-%d %H:%M:%S") if self.created_at else "",
             "updatedAt": self.updated_at.strftime("%Y-%m-%d %H:%M:%S") if self.updated_at else "",

@@ -100,6 +100,31 @@ def _sniff_image(head):
     return None
 
 
+MAX_PRODUCT_IMAGES = 6
+
+
+def _image_list(data, field="images", limit=MAX_PRODUCT_IMAGES):
+    """解析图集字段：字符串数组，去空、限长、限张数；字段未提供时返回 None。"""
+    if field not in data:
+        return None
+    value = data.get(field)
+    if not isinstance(value, list):
+        raise ApiError(f"参数 {field} 需为字符串数组")
+    urls = []
+    for item in value:
+        if not isinstance(item, str):
+            raise ApiError(f"参数 {field} 的每一项需为字符串")
+        item = item.strip()
+        if not item:
+            continue
+        if len(item) > 512:
+            raise ApiError(f"参数 {field} 中单个地址不能超过 512 字符")
+        urls.append(item)
+    if len(urls) > limit:
+        raise ApiError(f"参数 {field} 最多 {limit} 张图片")
+    return urls
+
+
 # ---------------------------------------------------------------- 账户
 @api(methods=("POST",))
 def register(request):
@@ -208,6 +233,7 @@ def product_detail(request, product_id):
 @api(methods=("POST",), merchant=True)
 def product_create(request):
     data = body(request)
+    images = _image_list(data) or []
     product = Product(
         name=need_str(data, "name", max_length=64),
         category=need_str(data, "category", max_length=32, required=False, default="时令鲜果"),
@@ -216,7 +242,8 @@ def product_create(request):
         unit=need_str(data, "unit", max_length=32, required=False, default="份"),
         stock=to_int(data.get("stock"), "stock", default=0, minimum=0),
         description=need_str(data, "description", max_length=2000, required=False),
-        image_url=need_str(data, "imageUrl", max_length=512, required=False),
+        image_url=need_str(data, "imageUrl", max_length=512, required=False) or (images[0] if images else ""),
+        images=images,
         status=Product.STATUS_ON if data.get("status", "on") == "on" else Product.STATUS_OFF,
     )
     if product.origin_price_cents == 0:
@@ -248,6 +275,11 @@ def product_update(request, product_id):
         product.description = need_str(data, "description", max_length=2000, required=False)
     if "imageUrl" in data:
         product.image_url = need_str(data, "imageUrl", max_length=512, required=False)
+    if "images" in data:
+        product.images = _image_list(data) or []
+        # 没显式给封面时，封面跟随图集第一张，避免出现「有图集没封面」的空卡片
+        if "imageUrl" not in data and product.images:
+            product.image_url = product.images[0]
     product.save()
     return ok(product=product.to_dict())
 

@@ -1,9 +1,11 @@
 # 前端交接文档 · 果子来了
 
-> 更新：2026-10-21 · 后端负责人：lzmy18131（分支 `Backend`）
+> 更新：2026-11-04 · 后端负责人：lzmy18131（分支 `Backend`）
 > 适用于：PC 版（`frontend/`）、客户端 APP（`mobile/customer/`）、商户端 APP（`mobile/merchant/`）
+>
+> **按端拆分的版本（发给相应同学）**：[客户端 HANDOFF-CUSTOMER.md](HANDOFF-CUSTOMER.md) · [商户端 HANDOFF-MERCHANT.md](HANDOFF-MERCHANT.md)
 
-**一句话**：后端接口已实现并逐条实测通过（42 项断言），契约以 `mobile/shared/api.js` 顶部注释 + 本文第 4 节为准。前端按第 4 节对接、按第 8 节验收即可，不需要再问接口长什么样。
+**一句话**：后端接口已实现并逐条实测通过（77 项断言），契约以 `mobile/shared/api.js` 顶部注释 + 本文第 4 节为准。前端按第 4 节对接、按第 8 节验收即可，不需要再问接口长什么样。
 
 ---
 
@@ -87,12 +89,13 @@ python -m venv .venv
 | GET | `/products` | 公开 | `?keyword=&category=&scope=all` | `{products[], categories[]}` |
 | GET | `/products/<id>` | 公开 | — | `{product}` |
 | POST | `/products/<id>/status` | 商户 | `{status:'on'\|'off'}` | `{product}` |
-| POST | `/merchant/products` | 商户 | `name, category, priceCents, originPriceCents, unit, stock, description, imageUrl, status` | `{product}` |
-| PUT/PATCH | `/merchant/products/<id>` | 商户 | 任意子集 | `{product}` |
+| POST | `/merchant/products` | 商户 | `name, category, priceCents, originPriceCents, unit, stock, description, imageUrl, status, images[]` | `{product}` |
+| PUT/PATCH | `/merchant/products/<id>` | 商户 | 任意子集；传 `images` 整体替换图集 | `{product}` |
 | DELETE | `/merchant/products/<id>/delete` | 商户 | — | `{ok:true}` |
 
 - **公开** `GET /products` 只返回上架商品；商户端传 `scope=all`（带商户令牌）才含下架。
-- `product` 字段：`id, name, category, priceCents, originPriceCents, unit, stock, sales, description, imageUrl, status, createdAt, updatedAt`。
+- `product` 字段：`id, name, category, priceCents, originPriceCents, unit, stock, sales, description, imageUrl, images[], status, createdAt, updatedAt`。
+- **多图**：`images` 是字符串数组，最多 6 张；`imageUrl` 是封面。只传 `images` 不传 `imageUrl` 时，封面自动取 `images[0]`；显式传 `imageUrl` 则以它为准。上传接口一次一张，前端循环上传拿到 N 个 url 后，把数组一起提交即可（不要再传一张覆盖一张）。
 
 ### 4.3 预约订单（4 个）
 
@@ -173,11 +176,13 @@ python -m venv .venv
 - 金额一律是**分**的整数（`priceCents`、`totalCents`、`balanceCents`），展示前 `/100` 保留两位。`mobile/shared/api.js` 已提供 `fmtMoney()`。
 - 时间一律是字符串 `YYYY-MM-DD HH:MM:SS`（不是 ISO、没有时区后缀）。
 - `id` 都是整数。
+- **整数参数（数量、价格、库存、余额调整、分页等）只接受 JSON 整数或整数形式的字符串（`"5"`）**；`1.5`、`1.0`、`true` 一律返回 400，不会再被静默截断（2026-11-04 修复 B01，以前 `quantity: 1.5` 会写成 1 并返回 200）。
 
 **令牌**
 
 - 请求头 `Authorization: Bearer <token>`。
 - 兼容 `?token=` 查询参数（仅调试用，别在正式页面用——会进日志和 Referer）。
+- **401 只清除「发起这次请求时」那份令牌的登录态**：旧账号迟到的 401 不会把已登录的新账号踢下线（2026-11-04 修复 S01）。错误对象带 `err.status`，上层可据此区分 401 与业务错误。
 
 **未知路径**（本轮修复）：`/api/nope` 现在返回 `404 {"ok":false,"error":"接口不存在"}`。以前会被单页应用兜底路由吃掉，返回 `200 + HTML`，前端 `JSON.parse` 失败后只会显示「网络错误」，极难排查。
 
@@ -336,3 +341,37 @@ pending（待确认） ──确认──> confirmed（已确认） ──完成
 
 后端实测：**62/62** 断言通过（新增 20 项覆盖上传鉴权/伪装文件拒绝/回读图片、日期筛选与非法参数、趋势长度与字段）。
 
+
+---
+
+## 13. 自检清单修复（2026-11-04）
+
+对应《项目自检与问题清单》里归属后端与共享层的两条。
+
+| 编号 | 问题 | 修复 | 回归证据 |
+|---|---|---|---|
+| B01 | `to_int` 用 `int(value)`，`quantity: 1.5` 被静默截断成 1 且返回 200 | 严格整数校验：拒绝 float 与 bool，只接受 JSON 整数或整数字符串（`"5"`）；数量、价格、库存、余额调整、趋势天数等复用该工具的字段全部生效 | 旧代码 `to_int(1.5) = 1`；新代码 400「参数 quantity 需为整数」。接口层 6 条断言（含「被拒请求没有创建订单」） |
+| S01 | 共享层收到 401 直接清空当前令牌，旧账号迟到的 401 会把新账号踢下线 | 请求发起时捕获令牌，只有「响应回来时当前令牌仍等于该请求的令牌」才清除登录态；错误对象补 `err.status` 供上层区分 | `node --test mobile/shared/tests/api-401.test.cjs`：旧代码 3 项失败，新代码 6/6 通过 |
+
+**怎么跑**
+
+```powershell
+# 后端接口（另一个窗口先 manage.py runserver 8000）
+.\.venv\Scripts\python.exe tests\backend-e2e.py     # 69 项
+
+# 共享层 401 竞态（纯 node，不需要浏览器）
+node --test mobile/shared/tests/api-401.test.cjs     # 6 项
+```
+
+> `node --test` 传目录在这台机器上会报错，请直接传文件路径。
+
+**仍未做**（清单第五节列为功能待办，不算缺陷）：服务端分页、多图、修改密码、取货码。
+
+---
+
+## 14. 商品多图（2026-11-04）
+
+- **数据**：`Product.images`（JSON 字符串数组，迁移 `shop/migrations/0002_product_images.py`）；`imageUrl` 继续作为封面，老数据不受影响。
+- **接口**：创建/更新商品时传 `images: ['/media/uploads/a.png', '/media/uploads/b.png']`，最多 6 张、每项 ≤512 字符；传了就整体替换。只传 `images` 不传 `imageUrl` 时封面自动取第一张；显式传 `imageUrl` 以它为准。
+- **上传**：`POST /merchant/upload` 不变，仍是一次一张。前端「选多张 → 循环上传 → 收齐 url 数组 → 保存商品」，不要每传一张就保存一次，那样才会互相覆盖。
+- **拉代码后必须先 `python manage.py migrate`**，否则商品接口会因为缺 `images` 列报错。
