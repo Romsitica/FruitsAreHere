@@ -52,16 +52,28 @@ const STATUS_CLASS = {
 
 /* ============================================================ 经营概览 */
 const McOverview = {
-  data() { return { Auth, stats: null, pending: [], loading: true }; },
+  data() { return { Auth, stats: null, pending: [], loading: true, days: 7 }; },
+  computed: {
+    trendRows() { return (this.stats && this.stats.revenueTrend) || []; },
+    trendMax() { return this.trendRows.reduce((m, d) => Math.max(m, Number(d.salesCents) || 0), 0); },
+    trendTotal() { return this.trendRows.reduce((s, d) => s + (Number(d.salesCents) || 0), 0); },
+  },
   created() { this.load(); },
   methods: {
     fmtMoney: FM.fmtMoney,
     go(path) { router.navigate(path); },
+    setDays(n) { if (this.days === n) return; this.days = n; this.load(); },
+    /* 柱高用 px 而不是百分比：flex 容器里的百分比高度在部分安卓 WebView 会塌成 0 */
+    barPx(d) {
+      const v = Number(d.salesCents) || 0;
+      if (!v) return '2px';
+      return Math.max(4, Math.round(v / (this.trendMax || 1) * 84)) + 'px';
+    },
     async load() {
       this.loading = true;
       try {
         const [stats, orders] = await Promise.all([
-          api.get('/merchant/stats'),
+          api.get('/merchant/stats?days=' + this.days),
           api.get('/orders?status=pending'),
         ]);
         this.stats = stats.stats;
@@ -114,6 +126,30 @@ const McOverview = {
         </div>
       </div>
 
+      <div class="fm-block-title">营收趋势
+        <span class="mc-seg">
+          <button :class="['mc-seg-btn', days === 7 ? 'is-on' : '']" @click="setDays(7)">7 天</button>
+          <button :class="['mc-seg-btn', days === 30 ? 'is-on' : '']" @click="setDays(30)">30 天</button>
+        </span>
+      </div>
+      <div class="fm-section">
+        <div class="fm-card">
+          <div class="mc-trend" :class="{ 'mc-trend--dense': days === 30 }"
+               role="img" :aria-label="days + ' 天营收趋势，合计 ' + fmtMoney(trendTotal)">
+            <div class="mc-trend-col" v-for="(d, i) in trendRows" :key="d.date">
+              <span class="mc-trend-track">
+                <span class="mc-trend-bar" :style="{ height: barPx(d) }"></span>
+              </span>
+              <span class="mc-trend-x">{{ days === 30 && i % 5 !== 0 ? '' : d.date.slice(5) }}</span>
+            </div>
+          </div>
+          <p class="mc-hint">
+            {{ days }} 天合计 {{ fmtMoney(trendTotal) }}
+            <span v-if="!trendTotal">· 这段时间还没有已完成订单，订单完成后才计入营收</span>
+          </p>
+        </div>
+      </div>
+
       <div class="fm-block-title">热销商品</div>
       <div class="fm-section">
         <div class="fm-list">
@@ -133,16 +169,20 @@ const McOverview = {
 
 /* ============================================================ 预约订单 */
 const McOrders = {
-  data() { return { orders: [], status: 'pending', keyword: '', loading: true, detail: null, tabs: ORDER_TABS, pickMode: false, selected: [], batchBusy: false }; },
+  data() { return { orders: [], status: 'pending', keyword: '', dateFrom: '', dateTo: '', showDate: false, loading: true, detail: null, tabs: ORDER_TABS, pickMode: false, selected: [], batchBusy: false }; },
   created() { this.load(); },
   methods: {
     fmtMoney: FM.fmtMoney,
     statusClass(s) { return STATUS_CLASS[s] || 'is-muted'; },
+    clearDates() { this.dateFrom = ''; this.dateTo = ''; this.load(); },
     async load() {
       this.loading = true;
       try {
         const q = new URLSearchParams({ status: this.status });
         if (this.keyword) q.set('keyword', this.keyword);
+        /* 日期区间走服务端筛选（后端按 YYYY-MM-DD 解析，含首尾两天） */
+        if (this.dateFrom) q.set('dateFrom', this.dateFrom);
+        if (this.dateTo) q.set('dateTo', this.dateTo);
         this.orders = (await api.get('/orders?' + q.toString())).orders;
       } catch (e) {
         FM.toast(e.message, 'danger');
@@ -222,6 +262,8 @@ const McOrders = {
     <header class="fm-navbar">
       <div class="fm-navbar-title">预约订单</div>
       <div class="fm-navbar-actions">
+        <button v-if="!pickMode" :class="['fm-btn', 'fm-btn-sm', (dateFrom || dateTo) ? 'fm-btn-ghost' : '']"
+                @click="showDate = !showDate">筛选</button>
         <button v-if="!pickMode" class="fm-btn fm-btn-sm" @click="enterPick">批量</button>
         <button v-else class="fm-btn fm-btn-sm fm-btn-primary" @click="exitPick">退出批量</button>
       </div>
@@ -243,6 +285,13 @@ const McOrders = {
       <input class="fm-input" v-model.trim="keyword" placeholder="订单号 / 商品 / 手机号">
       <button class="fm-btn" type="submit">搜索</button>
     </form>
+    <!-- 日期筛选：默认收起，避免首屏被筛选控件占满 -->
+    <div class="fm-section mc-daterow" v-if="showDate">
+      <input class="fm-input" type="date" v-model="dateFrom" @change="load" aria-label="开始日期">
+      <span class="mc-daterow-sep">至</span>
+      <input class="fm-input" type="date" v-model="dateTo" @change="load" aria-label="结束日期">
+      <button v-if="dateFrom || dateTo" class="fm-btn fm-btn-sm mc-act" @click="clearDates">清除</button>
+    </div>
 
     <div class="fm-section">
       <div v-if="loading" class="fm-section">
@@ -493,7 +542,7 @@ const McProducts = {
       } catch (e) {
         const msg = String((e && e.message) || '');
         FM.toast(msg === 'NOT_READY'
-          ? '图片上传功能还没上线（后端 /merchant/upload 未提供），请先把图片地址粘到输入框'
+          ? '上传失败：服务端没有返回图片地址，请重试或改用图片直链'
           : msg, 'danger');
       } finally { this.uploading = false; }
     },
@@ -1241,11 +1290,17 @@ const App = {
  *   ✅ P1 订单批量处理：订单页「批量」进入多选态，全选 + 批量确认 / 批量完成
  *      后端只有单条接口，前端逐条循环，单条失败不影响其它单，结束后汇总提示
  *
- * 待办（按优先级）——以下三条都卡在后端接口，不在前端
- * P0 商品主图真正上传：需 POST /merchant/upload（multipart，字段名 file，返回 { url }）
- *      （前端接线口已留好：McProducts.uploadImage()，接口一到位即可跑通，UI 不用改）
- * P2 概览页加营收趋势图（需后端补 /merchant/stats/trend 提供按天营收）
- * P2 订单列表支持按日期筛选（需后端 /orders 增加 dateFrom/dateTo 参数）
+ * 本轮已完成（第三批：后端 2026-11-04 补齐三个接口后接线）
+ *   ✅ P0 商品主图真正上传：POST /merchant/upload（multipart，字段名 file，返回 { url }）
+ *      共享层的 api.post 强制 JSON、传不了文件，所以这里用原生 fetch + FormData 单独发；
+ *      成功后把返回的 url 写回 imageUrl，仍保留「粘贴直链」兜底
+ *   ✅ P2 营收趋势图：GET /merchant/stats?days=7|30 的返回里多了 revenueTrend，
+ *      纯 CSS 柱状图渲染，不引图表库（项目没有构建步骤）
+ *   ✅ P2 订单按日期筛选：GET /orders 增加 dateFrom/dateTo（YYYY-MM-DD，含首尾两天）
+ *
+ * 仍然做不了的（后端交接文档 P1 所列，不是前端能单方面解决的）
+ *   列表分页（接口全量返回，/orders 与 /redemptions 硬上限 300 条）
+ *   登录态自动续期（令牌无过期时间，需要后端先支持）
  *
  * 只允许改：mobile/merchant/**。共享层 mobile/shared/** 只读，
  * 需要新增通用能力请先在群里同步，不要复制一份改过的共享层副本。
