@@ -50,6 +50,9 @@ const STATUS_CLASS = {
   pending: 'is-warn', confirmed: 'is-info', completed: 'is-ok', cancelled: 'is-muted',
 };
 
+/* 后端 shop/api.py 的 MAX_PRODUCT_IMAGES，超出会直接 400，这里用来提前拦住 */
+const MAX_IMAGES = 6;
+
 /* ============================================================ 经营概览 */
 const McOverview = {
   data() { return { Auth, stats: null, pending: [], loading: true, days: 7 }; },
@@ -387,7 +390,7 @@ const McProducts = {
     return {
       products: [], categories: [], keyword: '', category: '', loading: true,
       formOpen: false, mode: 'create', form: null, errors: {}, saving: false,
-      uploading: false, previewUrl: '',
+      uploading: false, urlDraft: '', maxImages: MAX_IMAGES,
     };
   },
   created() { this.load(); },
@@ -430,18 +433,23 @@ const McProducts = {
     blankForm() {
       return {
         id: null, name: '', category: '时令鲜果', priceYuan: '', originPriceYuan: '',
-        unit: '份', stock: 0, status: 'on', description: '', imageUrl: '',
+        unit: '份', stock: 0, status: 'on', description: '', images: [],
       };
     },
     openCreate() {
       this.mode = 'create';
       this.form = this.blankForm();
       this.errors = {};
-      this.previewUrl = '';
+      this.urlDraft = '';
       this.formOpen = true;
     },
     openEdit(product) {
       this.mode = 'edit';
+      /* 后端同时保留了 imageUrl（封面）与 images（图集）。
+         老商品只有封面没有图集，这里把封面当作第一张，避免点开编辑看不到图。 */
+      const gallery = Array.isArray(product.images) && product.images.length
+        ? product.images.slice()
+        : (product.imageUrl ? [product.imageUrl] : []);
       this.form = {
         id: product.id,
         name: product.name,
@@ -452,10 +460,10 @@ const McProducts = {
         stock: product.stock,
         status: product.status,
         description: product.description || '',
-        imageUrl: product.imageUrl || '',
+        images: gallery.slice(0, 6),
       };
       this.errors = {};
-      this.previewUrl = product.imageUrl || '';
+      this.urlDraft = '';
       this.formOpen = true;
     },
     closeForm() {
@@ -463,7 +471,7 @@ const McProducts = {
       this.formOpen = false;
       this.form = null;
       this.errors = {};
-      this.previewUrl = '';
+      this.urlDraft = '';
     },
 
     /* -------------------------------------------- 前端校验（后端还会再校验一次） */
@@ -493,7 +501,10 @@ const McProducts = {
       if (String(f.category || '').length > 32) errors.category = '分类不能超过 32 个字';
       if (String(f.unit || '').length > 32) errors.unit = '规格单位不能超过 32 个字';
       if (String(f.description || '').length > 2000) errors.description = '商品详情不能超过 2000 个字';
-      if (String(f.imageUrl || '').length > 512) errors.imageUrl = '图片地址不能超过 512 个字符';
+      /* 图集：最多 6 张，单张地址不超过 512 字符（后端同样会拦，这里先挡住少跑一次网络） */
+      const gallery = Array.isArray(f.images) ? f.images : [];
+      if (gallery.length > 6) errors.images = '最多只能放 6 张图';
+      else if (gallery.some((u) => String(u).trim().length > 512)) errors.images = '单张图片地址不能超过 512 个字符';
 
       this.errors = errors;
       const count = Object.keys(errors).length;
@@ -519,8 +530,12 @@ const McProducts = {
         stock: stockRaw === '' ? 0 : Number(stockRaw),
         status: f.status === 'off' ? 'off' : 'on',
         description: String(f.description || '').trim(),
-        imageUrl: String(f.imageUrl || '').trim(),
+        /* 图集整体提交。注意：不是每传一张就保存一次 —— 那样后一次会把前一次覆盖掉，
+           这是交接文档里特意点出来的坑。这里只在点「保存」时一次性提交。 */
+        images: (Array.isArray(f.images) ? f.images : [])
+          .map((u) => String(u || '').trim()).filter(Boolean).slice(0, 6),
       };
+      payload.imageUrl = payload.images[0] || '';
       this.saving = true;
       try {
         if (this.mode === 'create') {
@@ -533,34 +548,43 @@ const McProducts = {
           : '商品已更新');
         this.formOpen = false;
         this.form = null;
-        this.previewUrl = '';
+        this.urlDraft = '';
         this.load();
       } catch (e) {
         FM.toast(e.message, 'danger');
       } finally { this.saving = false; }
     },
 
-    /* -------------------------------------------- 主图：拍照 / 相册 / 直链 */
-    pickImage(event) {
+    /* -------------------------------------------- 图集：拍照 / 相册 / 直链
+     * 一次可选多张，逐张上传后追加进 form.images，最多 6 张。
+     * 关键：上传只往数组里追加，不写库；点「保存」时才整体提交一次。
+     * 交接文档特意提过这个坑——每传一张就保存一次，后一次会把前一次覆盖掉。 */
+    async pickImage(event) {
       const input = event.target;
-      const file = input.files && input.files[0];
+      const files = Array.from(input.files || []);
       input.value = '';                       // 清空，允许连续选同一张图
-      if (!file) return;
-      if (!/^image\//.test(file.type)) { FM.toast('请选择图片文件', 'danger'); return; }
-      if (file.size > 5 * 1024 * 1024) { FM.toast('图片不能超过 5MB', 'danger'); return; }
+      if (!files.length) return;
 
-      const reader = new FileReader();        // 先本地出预览，店家立刻能看到效果
-      reader.onload = () => { this.previewUrl = String(reader.result || ''); };
-      reader.readAsDataURL(file);
+      const room = MAX_IMAGES - this.form.images.length;
+      if (room <= 0) { FM.toast('最多 ' + MAX_IMAGES + ' 张，先删掉一张再加', 'danger'); return; }
 
-      this.uploadImage(file);
+      let accepted = 0;
+      for (const file of files) {
+        if (accepted >= room) break;
+        if (!/^image\//.test(file.type)) { FM.toast(file.name + ' 不是图片，已跳过', 'danger'); continue; }
+        if (file.size > 5 * 1024 * 1024) { FM.toast(file.name + ' 超过 5MB，已跳过', 'danger'); continue; }
+        accepted += 1;
+        await this.uploadImage(file);         // 串行：一张传完再传下一张
+      }
+      if (files.length > accepted) {
+        FM.toast('最多 ' + MAX_IMAGES + ' 张，多出来的没有添加', 'warning');
+      }
     },
 
     /**
-     * 上传主图。
+     * 上传单张图片并追加到图集。
      * 注意：共享层的 api.post 会把 body 强制 JSON 序列化，传不了文件，
      * 所以这里用原生 fetch + FormData，并手动带上 Authorization。
-     * 后端 POST /merchant/upload 就绪后，本函数不用再改（只换 UI 文案）。
      */
     async uploadImage(file) {
       this.uploading = true;
@@ -572,30 +596,50 @@ const McProducts = {
         if (api.state.token) headers.Authorization = 'Bearer ' + api.state.token;
         const res = await fetch(base + '/merchant/upload', { method: 'POST', headers: headers, body: fd });
 
-        // 严格校验：接口没上线时不会返回干净的 404 ——
-        // fruitmall/urls.py 末尾有一条万能兜底路由，未知的 POST 会返回 405 + HTML，
-        // 所以不能只看 res.ok，必须确认拿到的是 { ok: true, url } 这种真响应。
+        // 严格校验：不能只看 res.ok —— 未知路径可能返回 405 + HTML，
+        // 必须确认拿到的是 { ok: true, url } 这种真响应。
         let data = null;
         try { data = await res.json(); } catch (err) { data = null; }
         if (!res.ok || !data || data.ok !== true || !data.url) {
           throw new Error((data && data.ok === false && data.error) ? data.error : 'NOT_READY');
         }
 
-        this.form.imageUrl = data.url;
-        this.previewUrl = data.url;
-        FM.toast('图片已上传');
+        if (this.form.images.length >= MAX_IMAGES) return;
+        this.form.images.push(data.url);
+        FM.toast('已添加第 ' + this.form.images.length + ' 张');
       } catch (e) {
         const msg = String((e && e.message) || '');
         FM.toast(msg === 'NOT_READY'
-          ? '上传失败：服务端没有返回图片地址，请重试或改用图片直链'
+          ? '上传失败：服务端没有返回图片地址，请重试'
           : msg, 'danger');
       } finally { this.uploading = false; }
     },
 
-    /** 手动粘贴图片地址后同步预览 */
-    useUrl() {
-      const url = String(this.form.imageUrl || '').trim();
-      if (url) this.previewUrl = url;
+    removeImage(index) {
+      if (this.saving) return;
+      this.form.images.splice(index, 1);
+    },
+
+    /** 点缩略图把它提到第一位——第一位就是封面 */
+    setCover(index) {
+      if (index <= 0 || this.saving) return;
+      const list = this.form.images;
+      const url = list.splice(index, 1)[0];
+      list.unshift(url);
+      FM.toast('已设为封面');
+    },
+
+    /** 粘贴图片直链后追加到图集 */
+    addUrl() {
+      const url = String(this.urlDraft || '').trim();
+      if (!url) return;
+      if (this.form.images.length >= MAX_IMAGES) {
+        FM.toast('最多 ' + MAX_IMAGES + ' 张，先删掉一张再加', 'danger');
+        return;
+      }
+      if (url.length > 512) { FM.toast('图片地址不能超过 512 个字符', 'danger'); return; }
+      this.form.images.push(url);
+      this.urlDraft = '';
     },
     async toggle(product) {
       const next = product.status === 'on' ? 'off' : 'on';
@@ -697,25 +741,37 @@ const McProducts = {
       <h3 class="fm-sheet-title">{{ formTitle }}</h3>
 
       <div class="fm-field">
-        <label class="fm-label">商品主图</label>
-        <div class="mc-picker">
-          <img v-if="previewUrl" class="mc-picker-img" :src="previewUrl" alt="主图预览" @error="previewUrl = ''">
-          <div v-else class="mc-picker-empty">还没有图片</div>
-          <div class="mc-picker-btns">
-            <label class="fm-btn fm-btn-sm fm-btn-primary">
-              {{ uploading ? '上传中…' : '拍照' }}
-              <input class="mc-file" type="file" accept="image/*" capture="environment" :disabled="uploading" @change="pickImage">
-            </label>
-            <label class="fm-btn fm-btn-sm">
-              从相册选
-              <input class="mc-file" type="file" accept="image/*" :disabled="uploading" @change="pickImage">
-            </label>
+        <label class="fm-label">商品图集 <span class="mc-label-note">最多 {{ maxImages }} 张，第一张是封面</span></label>
+        <div class="mc-gallery" v-if="form">
+          <div class="mc-gallery-item" v-for="(url, i) in form.images" :key="url + '@' + i">
+            <img :src="url" :alt="'第 ' + (i + 1) + ' 张图'" @click="setCover(i)"
+                 :title="i === 0 ? '当前封面' : '点一下设为封面'">
+            <span class="mc-gallery-cover" v-if="i === 0">封面</span>
+            <button type="button" class="mc-gallery-del" :disabled="saving"
+                    :aria-label="'删除第 ' + (i + 1) + ' 张图'" @click.stop="removeImage(i)">×</button>
+          </div>
+          <!-- 上满 6 张就把添加入口收起来，避免点了报错 -->
+          <div class="mc-gallery-add" v-if="form.images.length < maxImages">
+            <div class="mc-gallery-add-hint">{{ uploading ? '上传中…' : '添加图片' }}</div>
+            <div class="mc-gallery-add-btns">
+              <label class="mc-gallery-btn">
+                拍照
+                <input class="mc-file" type="file" accept="image/*" capture="environment" multiple
+                       :disabled="uploading" @change="pickImage">
+              </label>
+              <label class="mc-gallery-btn">
+                相册
+                <input class="mc-file" type="file" accept="image/*" multiple
+                       :disabled="uploading" @change="pickImage">
+              </label>
+            </div>
           </div>
         </div>
-        <input class="fm-input mc-picker-url" v-model.trim="form.imageUrl" @change="useUrl"
-               placeholder="或粘贴图片地址：http://…">
-        <p class="mc-hint">支持 jpg / png / webp，单张不超过 5MB</p>
-        <p class="mc-form-error" v-if="errors.imageUrl">{{ errors.imageUrl }}</p>
+        <input class="fm-input mc-picker-url" v-model.trim="urlDraft" @change="addUrl" @keyup.enter="addUrl"
+               :disabled="!form || form.images.length >= maxImages"
+               placeholder="或粘贴图片地址后回车添加">
+        <p class="mc-hint">支持 jpg / png / webp / gif，单张不超过 5MB</p>
+        <p class="mc-form-error" v-if="errors.images">{{ errors.images }}</p>
       </div>
 
       <div class="fm-field">
