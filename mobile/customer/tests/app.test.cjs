@@ -16,7 +16,7 @@ function setup() {
     FM: { createClient: () => client, fmtMoney: v => String(v), toast() {},
       createRouter: () => ({ state: { path: '/', query: {} }, navigate: p => calls.push(p) }) } });
   vm.runInContext(fs.readFileSync(require('node:path').join(__dirname, '../app.js'), 'utf8') +
-    '\n;globalThis.subjects = {CtHome, CtDetail, resolve, Alerts, recordOrders, readOrder, loadAccount, CustomerAPI};', context);
+    '\n;globalThis.subjects = {CtHome, CtDetail, CtPoints, App, resolve, Alerts, recordOrders, readOrder, loadAccount, CustomerAPI, R};', context);
   function instance(component) {
     const instance = component.data();
     for (const [name, method] of Object.entries(component.methods || {})) instance[name] = method.bind(instance);
@@ -156,4 +156,64 @@ test('customer entry files never contain committed merge-conflict markers', () =
     const source = fs.readFileSync(path.join(__dirname, '..', name), 'utf8');
     assert.doesNotMatch(source, /^(<<<<<<< |=======\s*$|>>>>>>> )/m, name);
   }
+});
+
+test('401 on a public product page redirects to login preserving the original query', async () => {
+  const s = setup(); s.state.token = 'expired'; s.state.user = { id: 1 };
+  s.R.path = '/product/7'; s.R.query = { source: '鲜果' };
+  s.client.get = async () => { s.state.token = ''; s.state.user = null; throw Error('请先登录'); };
+  await assert.rejects(s.CustomerAPI.me(), /请先登录/);
+  const redirect = s.calls.find(call => typeof call === 'string');
+  // 共享 hash 路由会先 decodeURIComponent 整个 hash，再拆分问号。
+  assert.equal(new URLSearchParams(decodeURIComponent(redirect).split('?')[1]).get('from'), '/product/7?source=%E9%B2%9C%E6%9E%9C');
+});
+
+test('network errors and JSON 404 errors do not clear login or redirect', async () => {
+  const s = setup(); s.state.token = 'valid'; s.state.user = { id: 1 };
+  for (const message of ['网络连接失败', '接口不存在']) {
+    s.client.get = async () => { throw Error(message); };
+    await assert.rejects(s.CustomerAPI.me(), new RegExp(message));
+    assert.equal(s.state.token, 'valid');
+    assert.equal(s.calls.length, 0);
+  }
+});
+
+test('opening a confirmed order as the first page does not mark it unread on the initial poll', () => {
+  const s = setup(); s.state.user = { id: 1 };
+  s.readOrder(8, 'confirmed');
+  s.recordOrders([{ id: 8, status: 'confirmed' }]);
+  assert.equal(s.Alerts.ids.length, 0);
+});
+
+test('cached low balance does not block an order after the merchant has topped up the real account', async () => {
+  const s = setup(); s.state.user = { id: 1, balanceCents: 0 };
+  const detail = s.instance(s.CtDetail);
+  detail.product = { id: 7, stock: 10, priceCents: 100 };
+  detail.form.payMethod = 'balance';
+  // 模拟服务器最新余额足够，提交返回成功；浏览器余额仍是充值前快照。
+  await detail.submit();
+  assert.equal(s.calls.filter(call => Array.isArray(call) && call[0] === '/orders').length, 1);
+});
+
+test('cached low points do not block redeeming after a completed order has earned points', () => {
+  const s = setup(); s.state.user = { id: 1, points: 0 };
+  const points = s.instance(s.CtPoints);
+  const prize = { id: 3, costPoints: 120, stock: 3 };
+  points.ask(prize);
+  assert.equal(points.target, prize);
+});
+
+test('guest orders tab shows a login invitation, not an embedded login form', () => {
+  const s = setup(); const app = s.instance(s.App);
+  app.resolved = s.resolve('/orders');
+  assert.equal(app.view, 'ct-orders-guest');
+  assert.equal(s.calls.length, 0);
+});
+
+test('logged-in orders and other protected routes retain their original views', () => {
+  const s = setup(); const app = s.instance(s.App);
+  app.resolved = s.resolve('/orders'); s.state.user = { id: 1 };
+  assert.equal(app.view, 'ct-orders');
+  s.state.user = null; app.resolved = s.resolve('/me');
+  assert.equal(app.view, 'ct-auth');
 });
