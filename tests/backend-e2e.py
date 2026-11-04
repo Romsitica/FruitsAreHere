@@ -123,6 +123,37 @@ check("merchant create product", st == 200 and pid is not None, f"{st} {r}")
 st, r = call("GET", f"/products/{pid}")
 check("product detail", st == 200 and r.get("product", {}).get("priceCents") == 1000, str(st))
 
+# 5.5 商品图集：多图、封面回退与校验
+imgs = [f"http://example.com/p{i}.png" for i in (1, 2)]
+st, r = call("POST", "/merchant/products",
+             {"name": "E2E 多图果", "priceCents": 900, "stock": 3, "images": imgs}, token=mt)
+mpid = r.get("product", {}).get("id")
+p = r.get("product", {})
+check("create product with image list", st == 200 and p.get("images") == imgs, f"{st} {p.get('images')}")
+check("cover falls back to images[0]", p.get("imageUrl") == imgs[0], str(p.get("imageUrl")))
+
+st, r = call("PUT", f"/merchant/products/{mpid}", {"images": imgs[::-1]}, token=mt)
+check("update image list", st == 200 and r.get("product", {}).get("images") == imgs[::-1],
+      str(r.get("product", {}).get("images")))
+check("cover follows new images[0]", r.get("product", {}).get("imageUrl") == imgs[1],
+      str(r.get("product", {}).get("imageUrl")))
+
+st, r = call("PUT", f"/merchant/products/{mpid}",
+             {"imageUrl": "http://example.com/cover.png", "images": imgs}, token=mt)
+check("explicit cover wins over images[0]",
+      st == 200 and r.get("product", {}).get("imageUrl") == "http://example.com/cover.png",
+      str(r.get("product", {}).get("imageUrl")))
+
+st, r = call("POST", "/merchant/products", {"name": "E2E 图集非数组", "priceCents": 100, "images": "a,b"}, token=mt)
+check("images not array -> 400", st == 400, f"{st} {r.get('error', '')}")
+st, r = call("POST", "/merchant/products",
+             {"name": "E2E 图集过多", "priceCents": 100, "images": [f"http://e.com/{i}.png" for i in range(7)]},
+             token=mt)
+check("more than 6 images -> 400", st == 400, f"{st} {r.get('error', '')}")
+st, r = call("POST", "/merchant/products", {"name": "E2E 图集含数字", "priceCents": 100, "images": [1]}, token=mt)
+check("non-string image url -> 400", st == 400, f"{st} {r.get('error', '')}")
+call("DELETE", f"/merchant/products/{mpid}/delete", token=mt)
+
 # 6. 余额支付下单
 st, r = call("GET", "/auth/me", token=ut)
 before_balance = r["user"]["balanceCents"]
