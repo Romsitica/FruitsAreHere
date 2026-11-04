@@ -48,4 +48,7 @@ urlpatterns = [
 
     # 商户概览
     path("merchant/stats", api.stats),
+
+    # 图片上传
+    path("merchant/upload", api.upload_image),
 ]

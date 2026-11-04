@@ -1,11 +1,15 @@
 """平台接口：会员、商品、预约订单、积分奖品、余额与公告。"""
 import random
 import re
-from datetime import datetime
+import secrets
+from datetime import datetime, timedelta
+from pathlib import Path
 
+from django.conf import settings
 from django.contrib.auth.hashers import check_password, make_password
 from django.db import transaction
 from django.db.models import Count, Q, Sum
+from django.db.models.functions import TruncDate
 
 from .auth import (
     ApiError,
@@ -63,6 +67,37 @@ def _new_order_no():
 
 def _merchant_name(user):
     return user.nickname or user.phone
+
+
+def _parse_day(value, field):
+    """解析 YYYY-MM-DD 查询参数，空值返回 None，格式错直接 400。"""
+    value = (value or "").strip()
+    if not value:
+        return None
+    try:
+        return datetime.strptime(value, "%Y-%m-%d").date()
+    except ValueError:
+        raise ApiError(f"参数 {field} 格式应为 YYYY-MM-DD")
+
+
+# 图片上传：只认文件头，不信任客户端给的文件名和后缀
+IMAGE_SIGNATURES = (
+    (b"\xff\xd8\xff", ".jpg", "image/jpeg"),
+    (b"\x89PNG\r\n\x1a\n", ".png", "image/png"),
+    (b"GIF87a", ".gif", "image/gif"),
+    (b"GIF89a", ".gif", "image/gif"),
+)
+MAX_UPLOAD_BYTES = 5 * 1024 * 1024
+
+
+def _sniff_image(head):
+    """返回 (后缀, MIME) 或 None。head 至少 12 字节。"""
+    for magic, ext, mime in IMAGE_SIGNATURES:
+        if head.startswith(magic):
+            return ext, mime
+    if head[:4] == b"RIFF" and head[8:12] == b"WEBP":
+        return ".webp", "image/webp"
+    return None
 
 
 # ---------------------------------------------------------------- 账户
@@ -299,6 +334,16 @@ def _list_orders(request):
     status = request.GET.get("status", "").strip()
     if status and status != "all":
         qs = qs.filter(status=status)
+
+    date_from = _parse_day(request.GET.get("dateFrom"), "dateFrom")
+    date_to = _parse_day(request.GET.get("dateTo"), "dateTo")
+    if date_from:
+        qs = qs.filter(created_at__date__gte=date_from)
+    if date_to:
+        qs = qs.filter(created_at__date__lte=date_to)
+    if date_from and date_to and date_from > date_to:
+        raise ApiError("dateFrom 不能晚于 dateTo")
+
     keyword = request.GET.get("keyword", "").strip()
     if keyword:
         qs = qs.filter(
@@ -624,9 +669,35 @@ def announcement_delete(request, announcement_id):
 
 
 # ---------------------------------------------------------------- 商户概览
+def _revenue_trend(days):
+    """按天汇总已完成订单的营收，缺失日期补 0，返回从早到晚的连续序列。"""
+    today = datetime.now().date()
+    start = today - timedelta(days=days - 1)
+    rows = (
+        Order.objects.filter(status=Order.STATUS_COMPLETED, created_at__date__gte=start)
+        .annotate(day=TruncDate("created_at"))
+        .values("day")
+        .annotate(sales=Sum("total_cents"), order_count=Count("id"))
+    )
+    by_day = {row["day"]: row for row in rows}
+    trend = []
+    for offset in range(days):
+        day = start + timedelta(days=offset)
+        row = by_day.get(day)
+        trend.append(
+            {
+                "date": day.strftime("%Y-%m-%d"),
+                "salesCents": (row["sales"] if row else 0) or 0,
+                "orderCount": (row["order_count"] if row else 0) or 0,
+            }
+        )
+    return trend
+
+
 @api(methods=("GET",), merchant=True)
 def stats(request):
     completed = Order.objects.filter(status=Order.STATUS_COMPLETED)
+    days = to_int(request.GET.get("days"), "days", default=7, minimum=1, maximum=90)
     top = (
         Product.objects.annotate(order_count=Count("orders"))
         .filter(order_count__gt=0)
@@ -652,8 +723,41 @@ def stats(request):
             "topProducts": [
                 {"id": p.id, "name": p.name, "sales": p.sales, "stock": p.stock} for p in top
             ],
+            "revenueTrend": _revenue_trend(days),
+            "trendDays": days,
         }
     )
+
+
+# ---------------------------------------------------------------- 图片上传
+@api(methods=("POST",), merchant=True)
+def upload_image(request):
+    """商户上传图片（商品主图 / 奖品图），返回可直接写入 imageUrl 的地址。
+
+    表单字段名 file（兼容 image），请求类型 multipart/form-data。
+    文件名由服务端生成，只按文件头判断类型，不信任客户端给的后缀。
+    """
+    upload = request.FILES.get("file") or request.FILES.get("image")
+    if upload is None:
+        raise ApiError("请选择图片文件（表单字段名 file）")
+    if upload.size > MAX_UPLOAD_BYTES:
+        raise ApiError(f"图片不能超过 {MAX_UPLOAD_BYTES // 1024 // 1024} MB")
+
+    head = upload.read(12)
+    upload.seek(0)
+    sniffed = _sniff_image(head)
+    if sniffed is None:
+        raise ApiError("只支持 jpg / png / webp / gif 图片")
+    ext, mime = sniffed
+
+    name = f"{datetime.now():%Y%m%d}_{secrets.token_hex(6)}{ext}"
+    target_dir = Path(settings.MEDIA_ROOT) / "uploads"
+    target_dir.mkdir(parents=True, exist_ok=True)
+    with open(target_dir / name, "wb") as out:
+        for chunk in upload.chunks():
+            out.write(chunk)
+
+    return ok(url=f"{settings.MEDIA_URL}uploads/{name}", size=upload.size, contentType=mime)
 
 
 @api(methods=("GET",))
