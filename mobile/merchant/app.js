@@ -171,6 +171,32 @@ const McOverview = {
 const McOrders = {
   data() { return { orders: [], status: 'pending', keyword: '', dateFrom: '', dateTo: '', showDate: false, loading: true, detail: null, tabs: ORDER_TABS, pickMode: false, selected: [], batchBusy: false }; },
   created() { this.load(); },
+  computed: {
+    /* 按日期把订单分组：iOS 的列表习惯把同一天的东西收在一起，比一条平铺到底好扫读。
+       分组只用订单自己的 createdAt，不改接口、不改排序。 */
+    groups() {
+      const pad = (n) => (n < 10 ? '0' + n : '' + n);
+      const dayKey = (d) => d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate());
+      const now = new Date();
+      const today = dayKey(now);
+      const yesterday = dayKey(new Date(now.getTime() - 86400000));
+      const out = [];
+      const index = {};
+      (this.orders || []).forEach((o) => {
+        const key = String(o.createdAt || '').slice(0, 10) || '未知日期';
+        if (!index[key]) {
+          let label = key;
+          if (key === today) label = '今天';
+          else if (key === yesterday) label = '昨天';
+          else if (key.length === 10) label = Number(key.slice(5, 7)) + ' 月 ' + Number(key.slice(8, 10)) + ' 日';
+          index[key] = { key: key, label: label, items: [] };
+          out.push(index[key]);
+        }
+        index[key].items.push(o);
+      });
+      return out;
+    },
+  },
   methods: {
     fmtMoney: FM.fmtMoney,
     statusClass(s) { return STATUS_CLASS[s] || 'is-muted'; },
@@ -302,30 +328,38 @@ const McOrders = {
         <p>这个状态下还没有订单</p>
         <p>切换上方的状态标签，可以查看其他状态的订单</p>
       </div>
-      <div class="fm-card" v-for="order in orders" :key="order.id"
-           :class="{ 'mc-card--picked': pickMode && isPicked(order) }"
-           @click="pickMode ? togglePick(order) : (detail = order)">
-        <div class="mc-order-head">
-          <span class="mc-pick" v-if="pickMode" :class="{ 'is-on': isPicked(order) }">{{ isPicked(order) ? '✓' : '' }}</span>
-          <b>{{ order.orderNo }}</b>
-          <span class="fm-badge" :class="statusClass(order.status)">{{ order.statusText }}</span>
-        </div>
-        <p class="fm-strong" style="margin:8px 0 2px">{{ order.productName }} × {{ order.quantity }}</p>
-        <p class="fm-muted">{{ order.memberName }} · {{ order.memberPhone }}</p>
-        <p class="fm-muted">{{ order.pickupTime || '时间不限' }} · {{ order.payMethod === 'balance' ? '余额支付' : '到店支付' }}</p>
-        <div class="mc-order-foot">
-          <span class="fm-price-sm">{{ fmtMoney(order.totalCents) }}</span>
-          <span class="mc-order-actions">
-            <button v-if="order.status === 'pending'" class="fm-btn fm-btn-sm fm-btn-primary"
-                    @click.stop="change(order, 'confirmed', '确认')">确认</button>
-            <!-- 每张卡只留一颗实心按钮：待确认时是「确认」，已确认时换成「完成」 -->
-            <button v-if="order.status === 'pending' || order.status === 'confirmed'"
-                    :class="['fm-btn', 'fm-btn-sm', order.status === 'confirmed' ? 'fm-btn-primary' : 'mc-act']"
-                    @click.stop="change(order, 'completed', '完成')">完成</button>
-            <button v-if="order.status === 'pending' || order.status === 'confirmed'" class="fm-btn fm-btn-sm mc-act is-danger"
-                    @click.stop="change(order, 'cancelled', '取消')">取消</button>
-          </span>
-        </div>
+      <div v-else>
+        <template v-for="group in groups" :key="group.key">
+          <div class="mc-group">
+            <span class="mc-group-label">{{ group.label }}</span>
+            <span class="mc-group-count">{{ group.items.length }} 笔</span>
+          </div>
+          <div class="fm-card mc-order" v-for="order in group.items" :key="order.id"
+               :class="{ 'mc-card--picked': pickMode && isPicked(order) }"
+               @click="pickMode ? togglePick(order) : (detail = order)">
+            <div class="mc-order-head">
+              <span class="mc-pick" v-if="pickMode" :class="{ 'is-on': isPicked(order) }">{{ isPicked(order) ? '✓' : '' }}</span>
+              <b class="mc-order-no">{{ order.orderNo }}</b>
+              <span class="fm-badge" :class="statusClass(order.status)">{{ order.statusText }}</span>
+            </div>
+            <p class="mc-order-name">{{ order.productName }}<span class="mc-order-qty">× {{ order.quantity }}</span></p>
+            <p class="mc-order-sub">{{ order.memberName }} · {{ order.memberPhone }}</p>
+            <p class="mc-order-sub"><span class="mc-order-when">{{ order.pickupTime || '时间不限' }}</span> · {{ order.payMethod === 'balance' ? '余额支付' : '到店支付' }}</p>
+            <div class="mc-order-foot">
+              <span class="mc-order-price">{{ fmtMoney(order.totalCents) }}</span>
+              <span class="mc-order-actions">
+                <button v-if="order.status === 'pending'" class="fm-btn fm-btn-sm fm-btn-primary"
+                        @click.stop="change(order, 'confirmed', '确认')">确认</button>
+                <!-- 每张卡只留一颗实心按钮：待确认时是「确认」，已确认时换成「完成」 -->
+                <button v-if="order.status === 'pending' || order.status === 'confirmed'"
+                        :class="['fm-btn', 'fm-btn-sm', order.status === 'confirmed' ? 'fm-btn-primary' : 'mc-act']"
+                        @click.stop="change(order, 'completed', '完成')">完成</button>
+                <button v-if="order.status === 'pending' || order.status === 'confirmed'" class="fm-btn fm-btn-sm mc-act is-danger"
+                        @click.stop="change(order, 'cancelled', '取消')">取消</button>
+              </span>
+            </div>
+          </div>
+        </template>
       </div>
     </div>
 
@@ -359,6 +393,17 @@ const McProducts = {
   created() { this.load(); },
   computed: {
     formTitle() { return this.mode === 'create' ? '新增商品' : '编辑商品'; },
+    /* 顶部汇总：在售 / 下架 / 缺货，让店主一眼知道库存健康度，不用逐张卡去数 */
+    summary() {
+      const list = this.products || [];
+      const on = list.filter((p) => p.status === 'on').length;
+      return {
+        total: list.length,
+        on: on,
+        off: list.length - on,
+        out: list.filter((p) => Number(p.stock) <= 0).length,
+      };
+    },
   },
   methods: {
     fmtMoney: FM.fmtMoney,
@@ -598,6 +643,13 @@ const McProducts = {
               :class="['fm-chip', category === name ? 'active' : '']" @click="pickCategory(name)">{{ name }}</button>
     </div>
 
+    <!-- 库存概览：有数据才出现，空店时不显示「0 在售」这种噪音 -->
+    <div class="mc-summary" v-if="!loading && summary.total">
+      <span class="mc-summary-item"><b>{{ summary.on }}</b>在售</span>
+      <span class="mc-summary-item"><b>{{ summary.off }}</b>下架</span>
+      <span class="mc-summary-item" :class="{ 'is-alert': summary.out > 0 }"><b>{{ summary.out }}</b>缺货</span>
+    </div>
+
     <div class="fm-section">
       <div v-if="loading" class="fm-section">
         <div class="fm-skeleton" v-for="n in 4" :key="n"></div>
@@ -611,27 +663,31 @@ const McProducts = {
         </template>
       </div>
       <div v-else class="fm-card mc-goods" v-for="item in products" :key="item.id">
-        <img v-if="item.imageUrl" class="mc-goods-img" :src="item.imageUrl" :alt="item.name"
-             loading="lazy" @error="item.imageUrl = ''">
-        <div v-else class="mc-goods-img mc-goods-img--empty">无图</div>
-        <div class="mc-goods-main">
-          <div class="mc-goods-head">
-            <b>{{ item.name }}</b>
-            <span class="fm-badge" :class="item.status === 'on' ? 'is-ok' : 'is-muted'">
-              {{ item.status === 'on' ? '已上架' : '已下架' }}
-            </span>
+        <div class="mc-goods-top">
+          <img v-if="item.imageUrl" class="mc-goods-img" :src="item.imageUrl" :alt="item.name"
+               loading="lazy" @error="item.imageUrl = ''">
+          <div v-else class="mc-goods-img mc-goods-img--empty">无图</div>
+          <div class="mc-goods-main">
+            <div class="mc-goods-head">
+              <b>{{ item.name }}</b>
+              <span class="fm-badge" :class="item.status === 'on' ? 'is-ok' : 'is-muted'">
+                {{ item.status === 'on' ? '在售' : '已下架' }}
+              </span>
+            </div>
+            <p class="mc-goods-meta">{{ item.category }} · {{ item.unit }} · 已售 {{ item.sales }}</p>
+            <div class="mc-goods-foot">
+              <span class="mc-goods-price">{{ fmtMoney(item.priceCents) }}</span>
+              <span class="fm-origin" v-if="item.originPriceCents">{{ fmtMoney(item.originPriceCents) }}</span>
+              <span class="mc-stock" :class="{ 'is-low': Number(item.stock) > 0 && Number(item.stock) <= 10, 'is-out': Number(item.stock) <= 0 }">
+                {{ Number(item.stock) <= 0 ? '缺货' : (Number(item.stock) <= 10 ? '仅剩 ' + item.stock : '库存 ' + item.stock) }}
+              </span>
+            </div>
           </div>
-          <p class="fm-muted">{{ item.category }} · {{ item.unit }}</p>
-          <div class="mc-goods-foot">
-            <span class="fm-price-sm">{{ fmtMoney(item.priceCents) }}</span>
-            <span class="fm-origin" v-if="item.originPriceCents">{{ fmtMoney(item.originPriceCents) }}</span>
-            <span class="fm-muted">库存 {{ item.stock }} · 已售 {{ item.sales }}</span>
-          </div>
-          <div class="mc-goods-actions">
-            <button class="fm-btn fm-btn-sm" @click="openEdit(item)">编辑</button>
-            <button class="fm-btn fm-btn-sm mc-act" @click="toggle(item)">{{ item.status === 'on' ? '下架' : '上架' }}</button>
-            <button class="fm-btn fm-btn-sm mc-act is-danger" @click="remove(item)">删除</button>
-          </div>
+        </div>
+        <div class="mc-goods-actions">
+          <button class="fm-btn fm-btn-sm" @click="openEdit(item)">编辑</button>
+          <button class="fm-btn fm-btn-sm mc-act" @click="toggle(item)">{{ item.status === 'on' ? '下架' : '上架' }}</button>
+          <button class="fm-btn fm-btn-sm mc-act is-danger" @click="remove(item)">删除</button>
         </div>
       </div>
     </div>
@@ -798,16 +854,20 @@ const McMembers = {
       </div>
       <div class="fm-card mc-member" v-for="member in members" :key="member.id">
         <div class="mc-member-head">
-          <div>
+          <div class="mc-avatar" aria-hidden="true">{{ String(member.nickname || '会').slice(0, 1) }}</div>
+          <div class="mc-member-id">
             <b>{{ member.nickname }}</b>
-            <p class="fm-muted">{{ member.phone }}</p>
+            <p class="mc-member-phone">{{ member.phone }}</p>
           </div>
           <div class="mc-member-money">
-            <b class="fm-price-sm">{{ fmtMoney(member.balanceCents) }}</b>
-            <span class="fm-muted">{{ member.points }} 积分</span>
+            <b class="mc-member-balance">{{ fmtMoney(member.balanceCents) }}</b>
+            <span class="mc-member-points">{{ member.points }} 积分</span>
           </div>
         </div>
-        <p class="fm-muted">预约 {{ member.orderCount }} 笔 · 累计消费 {{ fmtMoney(member.totalSpentCents) }}</p>
+        <div class="mc-member-stats">
+          <span>预约 <b>{{ member.orderCount }}</b> 笔</span>
+          <span>累计消费 <b>{{ fmtMoney(member.totalSpentCents) }}</b></span>
+        </div>
         <div class="mc-member-actions">
           <button class="fm-btn fm-btn-sm fm-btn-primary" @click="openBalance(member)">调整余额</button>
           <button class="fm-btn fm-btn-sm mc-act" @click="openDetail(member)">明细</button>
@@ -1024,10 +1084,15 @@ const McMore = {
   template: `
   <div>
     <header class="fm-navbar"><div class="fm-navbar-title">更多</div></header>
-    <div class="fm-chips">
-      <button :class="['fm-chip', tab === 'notice' ? 'active' : '']" @click="tab = 'notice'">公告 {{ notices.length }}</button>
-      <button :class="['fm-chip', tab === 'prize' ? 'active' : '']" @click="tab = 'prize'">奖品 {{ prizes.length }}</button>
-      <button :class="['fm-chip', tab === 'exchange' ? 'active' : '']" @click="tab = 'exchange'">兑换 {{ redemptions.length }}</button>
+    <div class="fm-section mc-segwrap">
+      <div class="fm-seg" role="tablist" aria-label="内容分类">
+        <button :class="['fm-seg-btn', tab === 'notice' ? 'is-on' : '']" role="tab"
+                :aria-selected="tab === 'notice'" @click="tab = 'notice'">公告 {{ notices.length }}</button>
+        <button :class="['fm-seg-btn', tab === 'prize' ? 'is-on' : '']" role="tab"
+                :aria-selected="tab === 'prize'" @click="tab = 'prize'">奖品 {{ prizes.length }}</button>
+        <button :class="['fm-seg-btn', tab === 'exchange' ? 'is-on' : '']" role="tab"
+                :aria-selected="tab === 'exchange'" @click="tab = 'exchange'">兑换 {{ redemptions.length }}</button>
+      </div>
     </div>
     <div class="fm-section">
       <div v-if="loading" class="fm-section">
@@ -1038,10 +1103,10 @@ const McMore = {
           <div class="mc-toolbar">
             <button class="fm-btn fm-btn-sm fm-btn-primary" @click="openNoticeCreate">+ 发布公告</button>
           </div>
-          <div class="fm-card" v-for="item in notices" :key="item.id">
-            <b>{{ item.title }}</b>
-            <p class="fm-muted" style="margin:6px 0 0">{{ item.content }}</p>
-            <p class="fm-muted">{{ item.createdAt }}</p>
+          <div class="fm-card mc-notice" v-for="item in notices" :key="item.id">
+            <b class="mc-notice-title">{{ item.title }}</b>
+            <p class="mc-notice-body">{{ item.content }}</p>
+            <p class="mc-notice-date">{{ item.createdAt }}</p>
             <div class="mc-card-actions">
               <button class="fm-btn fm-btn-sm" @click="openNoticeEdit(item)">编辑</button>
               <button class="fm-btn fm-btn-sm mc-act is-danger" @click="removeNotice(item)">删除</button>
@@ -1190,18 +1255,18 @@ const McAuth = {
   },
   template: `
   <div class="fm-auth">
-    <div class="fm-auth-logo" style="background:linear-gradient(135deg,#2f9e5f,#63b86b)"></div>
-    <h1>果子来了</h1>
-    <p class="fm-auth-sub">商户工作台 · 管理商品上下架、会员余额、预约订单与门店公告</p>
+    <div class="mc-auth-logo" aria-hidden="true"><span class="mc-auth-logo-mark">果</span></div>
+    <h1 class="mc-auth-title">果子来了</h1>
+    <p class="mc-auth-sub">商户工作台 · 管理商品上下架、会员余额、预约订单与门店公告</p>
     <div class="fm-field">
       <label class="fm-label">商户手机号</label>
       <input class="fm-input" type="tel" maxlength="11" v-model.trim="form.phone" placeholder="请输入商户账号">
     </div>
     <div class="fm-field">
       <label class="fm-label">密码</label>
-      <input class="fm-input" type="password" v-model="form.password">
+      <input class="fm-input" type="password" v-model="form.password" placeholder="请输入密码">
     </div>
-    <button class="fm-btn fm-btn-leaf fm-btn-block fm-btn-lg" :disabled="submitting" @click="submit">
+    <button class="fm-btn fm-btn-primary fm-btn-block fm-btn-lg" :disabled="submitting" @click="submit">
       {{ submitting ? '登录中…' : '登录' }}
     </button>
     <div class="fm-demo">

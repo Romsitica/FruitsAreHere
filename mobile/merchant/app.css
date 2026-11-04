@@ -686,3 +686,172 @@
       0 34px 70px -26px rgba(0, 0, 0, .5);
   }
 }
+
+/* ============================================================================
+ * 12. 各功能页的 iOS 化重做
+ * ----------------------------------------------------------------------------
+ * 首页靠一块高饱和主卡就能立住，但列表页只换令牌是不够的 —— 那只会变成
+ * 「换了颜色的旧列表」。这一节按 iOS 的分组列表语法重排四页的结构：
+ *   订单页  按日期分组 + 三段式卡片（单号 / 内容 / 金额与操作）
+ *   商品页  大缩略图行 + 库存状态药丸 + 顶部库存概览
+ *   会员页  首字母头像 + 余额突出的两栏行
+ *   更多页  三个页签从滑动 chip 改成 iOS 分段控件
+ * 注意：共享层里有同等特异度的旧规则（如 .mc-order-head b），
+ * 这里用更具体的选择器覆盖，不靠 !important。
+ * ==========================================================================*/
+
+/* 12.1 分组标题（订单页按日期分组用） */
+.mc-group {
+  display: flex; align-items: baseline; gap: var(--sp-8);
+  margin: var(--sp-20) 0 var(--sp-8);
+  padding: 0 var(--sp-4);
+}
+.mc-group:first-child { margin-top: 0; }
+.mc-group-label { font-size: var(--fs-xs); font-weight: 600; color: var(--c-sub); letter-spacing: .02em; }
+.mc-group-count { margin-left: auto; font-size: var(--fs-2xs); color: var(--c-sub); opacity: .85; }
+
+/* 12.2 订单卡：单号抬头 → 商品主体 → 金额与操作，用发丝线断开 */
+.mc-order .mc-order-head { margin-bottom: var(--sp-8); }
+.mc-order-head .mc-order-no {
+  flex: 1; min-width: 0;
+  font-size: var(--fs-2xs); font-weight: 600; color: var(--c-sub);
+  letter-spacing: .04em; font-variant-numeric: tabular-nums;
+}
+.mc-order-name {
+  margin: 0; display: flex; align-items: baseline; gap: var(--sp-8);
+  font-size: var(--fs-md); font-weight: 600; color: var(--c-ink); line-height: 1.35;
+}
+.mc-order-qty { font-size: var(--fs-sm); font-weight: 400; color: var(--c-sub); }
+.mc-order-sub { margin: 4px 0 0; font-size: var(--fs-xs); color: var(--c-sub); line-height: 1.45; }
+.mc-order-when { color: var(--c-ink); font-weight: 500; }
+.mc-order .mc-order-foot { border-top: .5px solid var(--mc-hairline); }
+.mc-order-price {
+  font-size: var(--fs-lg); font-weight: 700; color: var(--c-ink);
+  letter-spacing: -.02em; font-variant-numeric: tabular-nums;
+}
+
+/* 12.3 商品卡：缩略图 72px 圆角方块，价格用品牌墨色，库存做成药丸 */
+.mc-goods { display: block; }
+.mc-goods-top { display: flex; gap: var(--sp-12); align-items: flex-start; }
+.mc-goods .mc-goods-img {
+  width: 88px; height: 88px; border-radius: 14px;
+  object-fit: cover; flex: none; background: var(--c-bg);
+}
+.mc-goods-img--empty {
+  display: flex; align-items: center; justify-content: center;
+  font-size: var(--fs-2xs); color: var(--c-sub);
+}
+.mc-goods-head b { font-size: var(--fs-md); font-weight: 600; letter-spacing: -.01em; }
+.mc-goods-meta { margin: 3px 0 0; font-size: var(--fs-xs); color: var(--c-sub); }
+.mc-goods .mc-goods-foot { margin: var(--sp-8) 0 0; }
+.mc-goods-price {
+  font-size: var(--fs-md); font-weight: 700; color: var(--c-brand-ink);
+  font-variant-numeric: tabular-nums;
+}
+.mc-stock {
+  margin-left: auto; padding: 2px 9px; border-radius: var(--r-pill);
+  font-size: var(--fs-2xs); font-weight: 600;
+  background: #ECECF1; color: var(--c-sub);
+}
+.mc-stock.is-low { background: var(--c-warn-soft); color: var(--c-warn-ink); }
+.mc-stock.is-out { background: var(--c-danger-soft); color: var(--c-danger-ink); }
+.mc-goods .mc-goods-actions {
+  margin-top: var(--sp-12); padding-top: var(--sp-12);
+  border-top: .5px solid var(--mc-hairline);
+}
+
+/* 12.4 会员卡：首字母头像 + 余额突出 */
+.mc-member .mc-member-head { align-items: center; }
+.mc-avatar {
+  width: 44px; height: 44px; flex: none; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--c-brand-soft); color: var(--c-brand-ink);
+  font-size: var(--fs-md); font-weight: 600;
+}
+.mc-member-id { flex: 1; min-width: 0; }
+.mc-member-id b { font-size: var(--fs-md); font-weight: 600; }
+.mc-member-phone { margin: 2px 0 0; font-size: var(--fs-xs); color: var(--c-sub); font-variant-numeric: tabular-nums; }
+.mc-member-money { align-items: flex-end; }
+.mc-member-money .mc-member-balance {
+  font-size: var(--fs-md); font-weight: 700; color: var(--c-brand-ink);
+  font-variant-numeric: tabular-nums;
+}
+.mc-member-points {
+  margin-top: 2px; padding: 1px 8px; border-radius: var(--r-pill);
+  font-size: var(--fs-2xs); background: var(--c-warn-soft); color: var(--c-warn-ink);
+}
+.mc-member-stats {
+  display: flex; gap: var(--sp-16);
+  margin-top: var(--sp-12); padding-top: var(--sp-12);
+  border-top: .5px solid var(--mc-hairline);
+  font-size: var(--fs-xs); color: var(--c-sub);
+}
+.mc-member-stats b { color: var(--c-ink); font-weight: 600; font-variant-numeric: tabular-nums; }
+
+/* 12.5 iOS 分段控件（更多页三个页签）
+   几何上照 iOS 的分段控件（等宽、圆角轨道、选中格浮起），
+   但选中格保留品牌高饱和绿 —— 纯白选中格会让这一页彻底失去颜色。 */
+.mc-segwrap { padding-bottom: var(--sp-4); }
+.fm-seg {
+  display: flex; gap: 2px; padding: 3px;
+  background: rgba(120, 120, 128, .12);
+  border-radius: var(--r-sm);
+}
+.fm-seg-btn {
+  flex: 1; min-width: 0; border: 0; background: transparent;
+  font: inherit; font-size: var(--fs-xs); font-weight: 500; color: var(--c-ink);
+  padding: 7px 4px; border-radius: 8px; cursor: pointer;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  transition: background-color .18s var(--mc-ease), box-shadow .18s var(--mc-ease);
+}
+.fm-seg-btn.is-on {
+  background: var(--c-brand); color: #04220F; font-weight: 600;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, .14);
+}
+.fm-seg-btn:focus-visible { outline: 2px solid var(--c-brand); outline-offset: 1px; }
+
+/* 12.6 公告卡 */
+.mc-notice-title { font-size: var(--fs-md); font-weight: 600; letter-spacing: -.01em; }
+.mc-notice-body { margin: var(--sp-8) 0 0; font-size: var(--fs-sm); color: var(--c-ink); line-height: 1.55; }
+.mc-notice-date { margin: var(--sp-8) 0 0; font-size: var(--fs-2xs); color: var(--c-sub); font-variant-numeric: tabular-nums; }
+
+/* 12.7 商品页顶部的库存概览 */
+.mc-summary { display: flex; gap: var(--sp-8); padding: 0 var(--sp-16) var(--sp-4); }
+.mc-summary-item {
+  flex: 1; padding: 10px var(--sp-12); border-radius: var(--r-sm);
+  background: var(--c-card); box-shadow: var(--mc-shadow);
+  font-size: var(--fs-2xs); color: var(--c-sub);
+}
+.mc-summary-item b {
+  display: block; line-height: 1.15;
+  font-size: var(--fs-lg); font-weight: 700; color: var(--c-ink);
+  font-variant-numeric: tabular-nums;
+}
+.mc-summary-item.is-alert { background: var(--c-warn-soft); }
+.mc-summary-item.is-alert b { color: var(--c-warn-ink); }
+
+/* 12.8 卡片按下去要有回弹，这是 iOS 手感的来源 */
+.mc-order:active, .mc-member:active {
+  transform: scale(.99);
+  transition: transform .12s var(--mc-ease);
+}
+
+/* 12.9 登录页：把行内的旧绿色渐变换成品牌鲜艳绿的应用图标式色块 */
+.mc-auth-logo {
+  width: 76px; height: 76px; margin: 0 auto var(--sp-20);
+  border-radius: 22px;
+  display: flex; align-items: center; justify-content: center;
+  background: linear-gradient(160deg, #3DDC84 0%, #00C853 46%, #00A344 100%);
+  box-shadow: 0 18px 34px -16px rgba(0, 200, 83, .8), inset 0 1px 0 rgba(255, 255, 255, .45);
+}
+.mc-auth-logo-mark {
+  font-size: 34px; font-weight: 700; color: #04220F; letter-spacing: -.02em;
+}
+.fm-auth .mc-auth-title {
+  margin: 0 0 var(--sp-8);
+  font-size: var(--fs-xl); font-weight: 700; letter-spacing: -.03em; color: var(--c-ink);
+}
+.fm-auth .mc-auth-sub {
+  margin: 0 0 var(--sp-20);
+  font-size: var(--fs-sm); line-height: 1.5; color: var(--c-sub);
+}
