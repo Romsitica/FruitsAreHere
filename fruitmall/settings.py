@@ -86,4 +86,10 @@ STATICFILES_DIRS = [
 # 生产环境 collectstatic 的汇总目录，由 nginx 直接托管
 STATIC_ROOT = BASE_DIR / "staticfiles"
 
+# 用户上传的图片（商品主图 / 奖品图）。开发期由 Django 托管，生产交给 nginx
+# 目录兜底创建，否则首次上传会报 "No such file or directory"
+MEDIA_URL = "/media/"
+MEDIA_ROOT = BASE_DIR / "media"
+MEDIA_ROOT.mkdir(exist_ok=True)
+
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"

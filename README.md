@@ -172,5 +172,8 @@ $env:FRUITS_SSH_PASSWORD="服务器 root 密码"
 
 - 数据库为 SQLite，适合演示与小规模使用；高并发需换 PostgreSQL
 - 目前为 HTTP 明文，生产建议上 HTTPS 并收紧 `DJANGO_CORS_ORIGINS` 白名单
-- 商品图片为外部图片地址，商户端「拍照上传」需要后端补 `POST /merchant/upload`
+- 商品图片支持上传（`POST /merchant/upload`，存 `media/uploads/`，生产由 nginx 托管 `/media/`），也仍可直接填外链
+- 商品支持多图：`images` 数组（最多 6 张），`imageUrl` 作为封面
 - 列表接口暂未分页，数据量大后需补 `page/pageSize`
+- 登录令牌无过期时间（只有 logout 失效），需要自动续期时要先改后端
+- 商户端营收趋势与订单日期筛选已支持：`GET /merchant/stats?days=N`、`GET /orders?dateFrom=&dateTo=`

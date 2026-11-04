@@ -1,5 +1,6 @@
 """接口鉴权：基于令牌的登录态与视图装饰器。"""
 import json
+import re
 import secrets
 from functools import wraps
 
@@ -55,14 +56,25 @@ def body(request) -> dict:
     return data
 
 
+INTEGER_RE = re.compile(r"-?\d+")
+
+
 def to_int(value, field, default=None, minimum=None, maximum=None):
+    """严格取整：拒绝小数与布尔值（历史实现 int(1.5) 会把数量静默截断成 1）。
+
+    约定：接受 JSON 整数和「整数形式的字符串」（如 "5"），拒绝 1.5、1.0、true、"1.5"。
+    """
     if value is None or value == "":
         if default is None:
             raise ApiError(f"缺少参数：{field}")
         return default
-    try:
-        number = int(value)
-    except (TypeError, ValueError):
+    if isinstance(value, bool) or isinstance(value, float):
+        raise ApiError(f"参数 {field} 需为整数")
+    if isinstance(value, int):
+        number = value
+    elif isinstance(value, str) and INTEGER_RE.fullmatch(value.strip()):
+        number = int(value.strip())
+    else:
         raise ApiError(f"参数 {field} 需为整数")
     if minimum is not None and number < minimum:
         raise ApiError(f"参数 {field} 不能小于 {minimum}")
