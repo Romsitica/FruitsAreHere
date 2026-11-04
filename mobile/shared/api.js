@@ -143,8 +143,10 @@
 
     async function request(method, path, payload) {
       var url = /^https?:/.test(path) ? path : cfg.baseUrl + path;
+      // 捕获发起请求时的令牌：响应回来时账号可能已经切换，不能拿「当前令牌」来判断这次请求属于谁
+      var requestToken = state.token;
       var headers = { 'Content-Type': 'application/json' };
-      if (state.token) headers['Authorization'] = 'Bearer ' + state.token;
+      if (requestToken) headers['Authorization'] = 'Bearer ' + requestToken;
 
       var controller = new AbortController();
       var timer = setTimeout(function () { controller.abort(); }, DEFAULT_TIMEOUT);
@@ -167,11 +169,17 @@
       try { data = await res.json(); } catch (err) { data = {}; }
 
       if (res.status === 401) {
-        saveToken('');
-        state.user = null;
+        // 只清掉「发起这次请求时用的令牌」对应的登录态。
+        // 否则旧账号迟到的 401 会把已经登录的新账号一起踢下线。
+        if (state.token === requestToken) {
+          saveToken('');
+          state.user = null;
+        }
       }
       if (!res.ok || data.ok === false) {
-        throw new Error(data.error || ('请求失败（' + res.status + '）'));
+        var error = new Error(data.error || ('请求失败（' + res.status + '）'));
+        error.status = res.status;
+        throw error;
       }
       return data;
     }
