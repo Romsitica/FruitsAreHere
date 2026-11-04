@@ -1,9 +1,11 @@
 # 前端交接文档 · 果子来了
 
-> 更新：2026-10-21 · 后端负责人：lzmy18131（分支 `Backend`）
+> 更新：2026-11-04 · 后端负责人：lzmy18131（分支 `Backend`）
 > 适用于：PC 版（`frontend/`）、客户端 APP（`mobile/customer/`）、商户端 APP（`mobile/merchant/`）
+>
+> **按端拆分的版本（发给相应同学）**：[客户端 HANDOFF-CUSTOMER.md](HANDOFF-CUSTOMER.md) · [商户端 HANDOFF-MERCHANT.md](HANDOFF-MERCHANT.md)
 
-**一句话**：后端接口已实现并逐条实测通过（42 项断言），契约以 `mobile/shared/api.js` 顶部注释 + 本文第 4 节为准。前端按第 4 节对接、按第 8 节验收即可，不需要再问接口长什么样。
+**一句话**：后端接口已实现并逐条实测通过（77 项断言），契约以 `mobile/shared/api.js` 顶部注释 + 本文第 4 节为准。前端按第 4 节对接、按第 8 节验收即可，不需要再问接口长什么样。
 
 ---
 
