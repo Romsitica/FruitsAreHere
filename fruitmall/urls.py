@@ -1,7 +1,9 @@
+from django.conf import settings
 from django.contrib import admin
 from django.http import JsonResponse
 from django.urls import include, path, re_path
 from django.views.generic import TemplateView
+from django.views.static import serve as static_serve
 
 
 def api_not_found(request):
@@ -13,6 +15,8 @@ urlpatterns = [
     path("admin/", admin.site.urls),
     path("api/", include("shop.api_urls")),
     re_path(r"^api/.*$", api_not_found),
+    # 用户上传的图片。开发期由 Django 托管；生产环境务必由 nginx 直接托管 /media/
+    re_path(r"^media/(?P<path>.*)$", static_serve, {"document_root": settings.MEDIA_ROOT}),
     # 移动端两个独立 APP 的入口（hash 路由，刷新任意子路径都回落到各自入口）
     path("m/customer/", TemplateView.as_view(template_name="customer/index.html")),
     path("m/merchant/", TemplateView.as_view(template_name="merchant/index.html")),

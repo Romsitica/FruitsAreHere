@@ -23,7 +23,8 @@
  *     PUT    /merchant/products/<id>   （商户, 局部字段即可）
  *     DELETE /merchant/products/<id>/delete                          （商户）
  *   预约订单
- *     GET    /orders             ?status=pending|confirmed|completed|cancelled|all[&keyword=]
+ *     GET    /orders             ?status=pending|confirmed|completed|cancelled|all
+ *                                [&keyword=][&dateFrom=YYYY-MM-DD&dateTo=YYYY-MM-DD]
  *                                会员只见自己的；商户见全部           -> { orders[] }
  *     POST   /orders             { productId, quantity, pickupTime, payMethod, note }
  *                                                                   -> { order }
@@ -47,7 +48,13 @@
  *     PUT    /merchant/announcements/<id>                             （商户）
  *     DELETE /merchant/announcements/<id>/delete                      （商户）
  *   概览（商户）
- *     GET    /merchant/stats    -> { stats: { salesCents, orderCount, pendingCount, memberCount, ... } }
+ *     GET    /merchant/stats    ?days=7|30（默认 7，范围 1..90）
+ *            -> { stats: { salesCents, orderCount, pendingCount, memberCount, ...,
+ *                          revenueTrend: [{ date, salesCents, orderCount }], trendDays } }
+ *   上传（商户）
+ *     POST   /merchant/upload   multipart/form-data，字段名 file（兼容 image），
+ *                               只收 jpg/png/webp/gif、≤5MB、按文件头判定类型
+ *            -> { url: '/media/uploads/xxx.png', size, contentType }
  *
  *   约定：金额字段一律是「分」的整数；时间字段是 'YYYY-MM-DD HH:MM:SS' 字符串。
  * ==========================================================================*/
