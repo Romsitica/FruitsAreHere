@@ -87,12 +87,13 @@ python -m venv .venv
 | GET | `/products` | 公开 | `?keyword=&category=&scope=all` | `{products[], categories[]}` |
 | GET | `/products/<id>` | 公开 | — | `{product}` |
 | POST | `/products/<id>/status` | 商户 | `{status:'on'\|'off'}` | `{product}` |
-| POST | `/merchant/products` | 商户 | `name, category, priceCents, originPriceCents, unit, stock, description, imageUrl, status` | `{product}` |
-| PUT/PATCH | `/merchant/products/<id>` | 商户 | 任意子集 | `{product}` |
+| POST | `/merchant/products` | 商户 | `name, category, priceCents, originPriceCents, unit, stock, description, imageUrl, status, images[]` | `{product}` |
+| PUT/PATCH | `/merchant/products/<id>` | 商户 | 任意子集；传 `images` 整体替换图集 | `{product}` |
 | DELETE | `/merchant/products/<id>/delete` | 商户 | — | `{ok:true}` |
 
 - **公开** `GET /products` 只返回上架商品；商户端传 `scope=all`（带商户令牌）才含下架。
-- `product` 字段：`id, name, category, priceCents, originPriceCents, unit, stock, sales, description, imageUrl, status, createdAt, updatedAt`。
+- `product` 字段：`id, name, category, priceCents, originPriceCents, unit, stock, sales, description, imageUrl, images[], status, createdAt, updatedAt`。
+- **多图**：`images` 是字符串数组，最多 6 张；`imageUrl` 是封面。只传 `images` 不传 `imageUrl` 时，封面自动取 `images[0]`；显式传 `imageUrl` 则以它为准。上传接口一次一张，前端循环上传拿到 N 个 url 后，把数组一起提交即可（不要再传一张覆盖一张）。
 
 ### 4.3 预约订单（4 个）
 
@@ -363,3 +364,12 @@ node --test mobile/shared/tests/api-401.test.cjs     # 6 项
 > `node --test` 传目录在这台机器上会报错，请直接传文件路径。
 
 **仍未做**（清单第五节列为功能待办，不算缺陷）：服务端分页、多图、修改密码、取货码。
+
+---
+
+## 14. 商品多图（2026-11-04）
+
+- **数据**：`Product.images`（JSON 字符串数组，迁移 `shop/migrations/0002_product_images.py`）；`imageUrl` 继续作为封面，老数据不受影响。
+- **接口**：创建/更新商品时传 `images: ['/media/uploads/a.png', '/media/uploads/b.png']`，最多 6 张、每项 ≤512 字符；传了就整体替换。只传 `images` 不传 `imageUrl` 时封面自动取第一张；显式传 `imageUrl` 以它为准。
+- **上传**：`POST /merchant/upload` 不变，仍是一次一张。前端「选多张 → 循环上传 → 收齐 url 数组 → 保存商品」，不要每传一张就保存一次，那样才会互相覆盖。
+- **拉代码后必须先 `python manage.py migrate`**，否则商品接口会因为缺 `images` 列报错。

@@ -19,8 +19,9 @@
  *     GET    /products/<id>                                                 -> { product }
  *     POST   /products/<id>/status     { status: 'on'|'off' }      （商户）
  *     POST   /merchant/products        { name, category, priceCents, originPriceCents,
- *                                        unit, stock, description, imageUrl, status }  （商户, 新增）
- *     PUT    /merchant/products/<id>   （商户, 局部字段即可）
+ *                                        unit, stock, description, imageUrl, status,
+ *                                        images: string[] }   // 最多 6 张；imageUrl 为空时自动取 images[0] 作封面
+ *     PUT    /merchant/products/<id>   （商户, 局部字段即可；传 images 会整体替换图集）
  *     DELETE /merchant/products/<id>/delete                          （商户）
  *   预约订单
  *     GET    /orders             ?status=pending|confirmed|completed|cancelled|all
