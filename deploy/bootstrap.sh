@@ -89,7 +89,7 @@ set -a; . deploy/.env; set +a
 echo "ALLOWED_HOSTS = $DJANGO_ALLOWED_HOSTS"
 
 log "4/9 建表 + 灌演示数据"
-mkdir -p "$APP_DIR/data" "$APP_DIR/staticfiles"
+mkdir -p "$APP_DIR/data" "$APP_DIR/staticfiles" "$APP_DIR/media"
 .venv/bin/python manage.py migrate --noinput
 if .venv/bin/python manage.py seed; then
     echo "演示数据就绪"
