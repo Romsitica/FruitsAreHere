@@ -13,35 +13,40 @@
 
 /* 订单卡片 */
 .mc-order-head { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-8); }
-.mc-order-head b { font-size: 13.5px; font-family: ui-monospace, Consolas, monospace; }
+/* 订单号是「核对用」的辅助信息，不是内容主体：降到最小号 + 弱色，
+   让商品名（15px）成为卡片里第一眼看到的东西（见 10.3） */
+.mc-order-head b {
+  font-size: var(--fs-2xs); font-weight: 600; color: var(--c-sub); letter-spacing: .02em;
+  font-family: ui-monospace, Consolas, monospace;
+}
 .mc-order-foot {
   display: flex; align-items: center; justify-content: space-between;
   gap: var(--sp-12); margin-top: var(--sp-12); padding-top: var(--sp-12);
   border-top: 1px dashed var(--c-line);
 }
-.mc-order-actions { display: flex; gap: var(--sp-8); }
+.mc-order-actions { display: flex; gap: var(--sp-4); align-items: center; }
 
 /* 商品卡片 */
 .mc-goods { display: flex; gap: var(--sp-12); }
 .mc-goods-img { width: 84px; height: 84px; border-radius: var(--r-sm); object-fit: cover; flex: none; background: #eef2ee; }
 .mc-goods-main { flex: 1; min-width: 0; }
 .mc-goods-head { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-8); }
-.mc-goods-head b { font-size: 15.5px; }
+.mc-goods-head b { font-size: var(--fs-sm); }
 .mc-goods-foot { display: flex; align-items: baseline; gap: var(--sp-8); margin: var(--sp-4) 0 var(--sp-8); }
-.mc-goods-actions { display: flex; gap: var(--sp-8); }
+.mc-goods-actions { display: flex; gap: var(--sp-4); justify-content: flex-end; }
 
 /* 会员卡片 */
 .mc-member-head { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--sp-12); }
-.mc-member-head b { font-size: 15.5px; }
+.mc-member-head b { font-size: var(--fs-sm); }
 .mc-member-money { text-align: right; display: flex; flex-direction: column; }
-.mc-member-actions { display: flex; gap: var(--sp-8); margin-top: var(--sp-12); padding-top: var(--sp-12); border-top: 1px dashed var(--c-line); }
+.mc-member-actions { display: flex; gap: var(--sp-4); margin-top: var(--sp-12); padding-top: var(--sp-12); border-top: 1px dashed var(--c-line); justify-content: flex-end; }
 
 /* 兑换发放 */
 .mc-exchange-head { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-8); }
-.mc-exchange-head b { font-size: 15px; }
+.mc-exchange-head b { font-size: var(--fs-sm); }
 
 /* 金额与正负 */
-.mc-amount { font-size: 20px; font-weight: 800; }
+.mc-amount { font-size: var(--fs-lg); font-weight: 800; }
 .mc-up { color: var(--c-leaf); font-weight: 700; }
 .mc-down { color: var(--c-danger); font-weight: 700; }
 
@@ -49,8 +54,8 @@
 .mc-req { color: var(--c-danger); font-style: normal; margin-left: 2px; }
 .mc-form-row { display: grid; grid-template-columns: 1fr 1fr; gap: var(--sp-12); }
 .mc-form-row .fm-field { margin-bottom: var(--sp-16); }
-.mc-form-error { margin: var(--sp-4) 0 0; font-size: 12.5px; line-height: 1.5; color: var(--c-danger); }
-.mc-hint { margin: var(--sp-4) 0 0; font-size: 12.5px; line-height: 1.5; color: var(--c-sub); }
+.mc-form-error { margin: var(--sp-4) 0 0; font-size: var(--fs-xs); line-height: 1.5; color: var(--c-danger); }
+.mc-hint { margin: var(--sp-4) 0 0; font-size: var(--fs-xs); line-height: 1.5; color: var(--c-sub); }
 
 /* 主图选择区 */
 .mc-picker {
@@ -62,7 +67,7 @@
 .mc-picker-empty {
   width: 84px; height: 84px; border-radius: var(--r-sm); background: #eef2ee; flex: none;
   display: flex; align-items: center; justify-content: center;
-  font-size: 12px; color: var(--c-sub); text-align: center;
+  font-size: var(--fs-xs); color: var(--c-sub); text-align: center;
 }
 .mc-picker-btns { display: flex; flex-direction: column; gap: var(--sp-8); }
 .mc-picker-btns .fm-btn { white-space: nowrap; }
@@ -117,6 +122,22 @@
   --c-warn-ink:   #a85a0d;   /* 对白底 5.08:1 ✓ */
   --c-info-ink:   #2f5cb0;   /* 对 #eaf1ff 5.65:1 ✓ */
   --c-muted-ink:  #5a6d63;   /* 对 #f0f2f0 4.91:1 ✓ */
+
+  /* 字号阶梯：全站只有这 5 档，不要再临时造 12.5 / 13.5 这类半像素值。
+     2xs 辅助（订单号、时间戳、说明）
+     xs  次要正文、按钮、标签
+     sm  正文、卡片标题
+     md  区块强调（预留）
+     lg  指标数字、金额 */
+  --fs-2xs: 11px;
+  --fs-xs:  13px;
+  --fs-sm:  15px;
+  --fs-md:  17px;
+  --fs-lg:  21px;
+
+  /* 间距节奏：卡片内元素只用这两档，避免 4/8/12 混着来 */
+  --mc-gap-tight: var(--sp-4);
+  --mc-gap:       var(--sp-8);
 }
 
 /* ---------------------------------------------------------------- 2. 硬编码色 */
@@ -322,7 +343,7 @@
 /* 奖品无图兜底（与商品列表的「无图」一致） */
 .mc-thumb--empty {
   display: flex; align-items: center; justify-content: center;
-  font-size: 14px; color: var(--c-sub); background: var(--c-line);
+  font-size: var(--fs-xs); color: var(--c-sub); background: var(--c-line);
 }
 
 /* 订单多选：勾选框 + 选中卡片描边 */
@@ -346,3 +367,70 @@
 }
 .mc-batch-count { flex: 1; font-size: 13px; color: var(--c-ink); font-variant-numeric: tabular-nums; }
 .mc-batch-bar .fm-btn { flex: none; }
+
+/* ============================================================================
+ * 10. 视觉层级改造（本轮）
+ * ----------------------------------------------------------------------------
+ * 依据 design-taste-frontend 第 11.D 节的现代化杠杆（排版 > 节奏 > 色彩）。
+ * 只解决一个问题：让「今天先干哪件事」一眼可见。三条手段：
+ *   a) 按钮分三级：实心 / 描边 / 纯文字，危险动作只染文字不画框
+ *   b) 概览页把「待确认」提成主卡，其余指标降为分隔线列表（少画卡片）
+ *   c) 字号收敛到 5 档，订单号降为 11px 弱色
+ * 不改路由、不改接口字段、不改主色，所以是整段可回退的纯视觉层。
+ * ==========================================================================*/
+
+/* 10.1 三级按钮 —— 第三级：纯文字
+   卡片里只允许一个「实心绿」当报眼；其余动作用这一级。
+   危险动作只把文字染红，不再画一圈红框（红框会让三个按钮看起来一样重）。 */
+.fm-btn.mc-act {
+  background: transparent; border-color: transparent; box-shadow: none;
+  color: var(--c-sub); font-weight: 600;
+  padding-left: var(--sp-8); padding-right: var(--sp-8);
+}
+.fm-btn.mc-act:active { background: rgba(28, 45, 34, .07); }
+.fm-btn.mc-act.is-danger { color: var(--c-danger); }
+.fm-btn.mc-act.is-danger:active { background: rgba(208, 71, 43, .09); }
+@media (hover: hover) and (pointer: fine) {
+  .fm-btn.mc-act:hover { background: rgba(28, 45, 34, .06); color: var(--c-ink); }
+  .fm-btn.mc-act.is-danger:hover { background: rgba(208, 71, 43, .08); color: var(--c-danger); }
+}
+
+/* 10.2 概览页主卡：把「待确认」从六张等权卡片里抽出来，成为整页唯一的主视觉 */
+.mc-todo {
+  display: flex; align-items: center; gap: var(--sp-12);
+  padding: var(--sp-16); border-radius: var(--r-md);
+  background: var(--c-warn-soft);
+  border-left: 3px solid var(--c-warn);
+}
+.mc-todo.is-clear { background: var(--c-brand-soft); border-left-color: var(--c-brand); }
+.mc-todo-main { flex: 1; min-width: 0; }
+.mc-todo-label { display: block; font-size: var(--fs-xs); font-weight: 600; color: var(--c-warn-ink); }
+.mc-todo.is-clear .mc-todo-label { color: var(--c-brand-ink); }
+.mc-todo-num {
+  display: block; font-size: var(--fs-lg); font-weight: 800; line-height: 1.2;
+  color: var(--c-warn-ink); font-variant-numeric: tabular-nums;
+}
+.mc-todo.is-clear .mc-todo-num { color: var(--c-brand-ink); }
+.mc-todo-num em { font-style: normal; font-size: var(--fs-xs); font-weight: 600; margin-left: 2px; }
+.mc-todo-desc { margin: 2px 0 0; font-size: var(--fs-2xs); line-height: 1.4; color: var(--c-sub); }
+
+/* 10.3 指标列表：五条数字用分隔线分组，不再画五张卡（卡片留给真正要突出的东西） */
+.mc-metrics {
+  margin-top: var(--sp-12);
+  background: var(--c-card); border-radius: var(--r-md);
+  box-shadow: 0 1px 2px rgba(28, 45, 34, .05);
+  overflow: hidden;
+}
+.mc-metric {
+  display: flex; align-items: baseline; justify-content: space-between;
+  gap: var(--sp-12); padding: var(--sp-12) var(--sp-16);
+}
+.mc-metric + .mc-metric { border-top: 1px solid var(--c-line); }
+.mc-metric span { font-size: var(--fs-xs); color: var(--c-sub); }
+.mc-metric b { font-size: var(--fs-sm); font-weight: 700; font-variant-numeric: tabular-nums; }
+/* 0 值不该和真实数字一样抢眼：降色降重，但保留可读性 */
+.mc-metric b.is-zero { color: var(--c-sub); font-weight: 600; }
+
+/* 10.4 状态筛选条：补一点收尾留白，避免最后一个 chip 贴边像被裁断 */
+.fm-chips { padding-right: var(--sp-20); scroll-snap-type: x proximity; }
+.fm-chips .fm-chip { scroll-snap-align: start; }

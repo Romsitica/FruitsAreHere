@@ -82,26 +82,28 @@ const McOverview = {
     </div>
     <template v-else-if="stats">
       <div class="fm-section">
-        <div class="fm-stat-grid">
-          <div class="fm-stat"><span>累计营收</span><b>{{ fmtMoney(stats.salesCents) }}</b><em>已完成订单</em></div>
-          <div class="fm-stat mc-stat--todo"><span>待确认预约</span><b>{{ stats.pendingCount }}</b><em>共 {{ stats.orderCount }} 笔订单</em></div>
-          <div class="fm-stat"><span>会员数量</span><b>{{ stats.memberCount }}</b><em>余额合计 {{ fmtMoney(stats.balanceCents) }}</em></div>
-          <div class="fm-stat mc-stat--soft"><span>在售商品</span><b>{{ stats.productOnCount }}</b><em>已下架 {{ stats.productOffCount }} 款</em></div>
-          <div class="fm-stat"><span>已完成订单</span><b>{{ stats.completedCount }}</b><em>待取货 {{ stats.confirmedCount }} 单</em></div>
-          <div class="fm-stat mc-stat--soft"><span>累计发放积分</span><b>{{ stats.pointsIssued }}</b><em>兑换记录 {{ stats.redemptionCount }} 笔</em></div>
+        <div class="mc-todo" :class="{ 'is-clear': !stats.pendingCount }">
+          <div class="mc-todo-main">
+            <span class="mc-todo-label">待确认预约</span>
+            <b class="mc-todo-num">{{ stats.pendingCount }}<em>笔</em></b>
+            <p class="mc-todo-desc" v-if="stats.pendingCount">顾客在会员端下单后在这里等你确认，确认后可到店取货</p>
+            <p class="mc-todo-desc" v-else>暂时没有待确认的预约，今天的单都处理完了</p>
+          </div>
+          <button v-if="stats.pendingCount" class="fm-btn fm-btn-sm fm-btn-primary" @click="go('/orders')">去处理</button>
+        </div>
+
+        <div class="mc-metrics">
+          <div class="mc-metric"><span>累计营收</span><b :class="{ 'is-zero': !stats.salesCents }">{{ fmtMoney(stats.salesCents) }}</b></div>
+          <div class="mc-metric"><span>已完成订单</span><b :class="{ 'is-zero': !stats.completedCount }">{{ stats.completedCount }}</b></div>
+          <div class="mc-metric"><span>会员数量</span><b :class="{ 'is-zero': !stats.memberCount }">{{ stats.memberCount }}</b></div>
+          <div class="mc-metric"><span>在售商品</span><b :class="{ 'is-zero': !stats.productOnCount }">{{ stats.productOnCount }}</b></div>
+          <div class="mc-metric"><span>累计发放积分</span><b :class="{ 'is-zero': !stats.pointsIssued }">{{ stats.pointsIssued }}</b></div>
         </div>
       </div>
 
-      <div class="fm-block-title">待确认预约
-        <button class="fm-btn fm-btn-sm fm-btn-ghost" @click="go('/orders')">全部</button>
-      </div>
-      <div class="fm-section">
-        <div v-if="!pending.length" class="fm-empty">
-          <div class="fm-empty-ring"></div>
-          <p>暂时没有待确认的预约</p>
-          <p>顾客在会员端下单后，会出现在这里等你确认</p>
-        </div>
-        <div class="fm-list" v-else>
+      <div class="fm-block-title" v-if="pending.length">待处理明细</div>
+      <div class="fm-section" v-if="pending.length">
+        <div class="fm-list">
           <div class="fm-row" v-for="order in pending" :key="order.id">
             <div class="fm-row-main">
               <p class="fm-row-title">{{ order.productName }} × {{ order.quantity }}</p>
@@ -234,7 +236,7 @@ const McOrders = {
       <span class="mc-batch-count">已选 {{ selected.length }} 笔</span>
       <button class="fm-btn fm-btn-sm fm-btn-primary" :disabled="batchBusy"
               @click="batch('confirmed', '确认')">{{ batchBusy ? '处理中…' : '批量确认' }}</button>
-      <button class="fm-btn fm-btn-sm fm-btn-leaf" :disabled="batchBusy"
+      <button class="fm-btn fm-btn-sm mc-act" :disabled="batchBusy"
               @click="batch('completed', '完成')">批量完成</button>
     </div>
     <form class="fm-section mc-search" @submit.prevent="load">
@@ -267,9 +269,11 @@ const McOrders = {
           <span class="mc-order-actions">
             <button v-if="order.status === 'pending'" class="fm-btn fm-btn-sm fm-btn-primary"
                     @click.stop="change(order, 'confirmed', '确认')">确认</button>
-            <button v-if="order.status === 'pending' || order.status === 'confirmed'" class="fm-btn fm-btn-sm fm-btn-leaf"
+            <!-- 每张卡只留一颗实心按钮：待确认时是「确认」，已确认时换成「完成」 -->
+            <button v-if="order.status === 'pending' || order.status === 'confirmed'"
+                    :class="['fm-btn', 'fm-btn-sm', order.status === 'confirmed' ? 'fm-btn-primary' : 'mc-act']"
                     @click.stop="change(order, 'completed', '完成')">完成</button>
-            <button v-if="order.status === 'pending' || order.status === 'confirmed'" class="fm-btn fm-btn-sm fm-btn-danger"
+            <button v-if="order.status === 'pending' || order.status === 'confirmed'" class="fm-btn fm-btn-sm mc-act is-danger"
                     @click.stop="change(order, 'cancelled', '取消')">取消</button>
           </span>
         </div>
@@ -575,9 +579,9 @@ const McProducts = {
             <span class="fm-muted">库存 {{ item.stock }} · 已售 {{ item.sales }}</span>
           </div>
           <div class="mc-goods-actions">
-            <button class="fm-btn fm-btn-sm" @click="toggle(item)">{{ item.status === 'on' ? '下架' : '上架' }}</button>
             <button class="fm-btn fm-btn-sm" @click="openEdit(item)">编辑</button>
-            <button class="fm-btn fm-btn-sm fm-btn-danger" @click="remove(item)">删除</button>
+            <button class="fm-btn fm-btn-sm mc-act" @click="toggle(item)">{{ item.status === 'on' ? '下架' : '上架' }}</button>
+            <button class="fm-btn fm-btn-sm mc-act is-danger" @click="remove(item)">删除</button>
           </div>
         </div>
       </div>
@@ -757,7 +761,7 @@ const McMembers = {
         <p class="fm-muted">预约 {{ member.orderCount }} 笔 · 累计消费 {{ fmtMoney(member.totalSpentCents) }}</p>
         <div class="mc-member-actions">
           <button class="fm-btn fm-btn-sm fm-btn-primary" @click="openBalance(member)">调整余额</button>
-          <button class="fm-btn fm-btn-sm" @click="openDetail(member)">明细</button>
+          <button class="fm-btn fm-btn-sm mc-act" @click="openDetail(member)">明细</button>
         </div>
       </div>
     </div>
@@ -991,7 +995,7 @@ const McMore = {
             <p class="fm-muted">{{ item.createdAt }}</p>
             <div class="mc-card-actions">
               <button class="fm-btn fm-btn-sm" @click="openNoticeEdit(item)">编辑</button>
-              <button class="fm-btn fm-btn-sm fm-btn-danger" @click="removeNotice(item)">删除</button>
+              <button class="fm-btn fm-btn-sm mc-act is-danger" @click="removeNotice(item)">删除</button>
             </div>
           </div>
           <div class="fm-empty" v-if="!notices.length"><p>还没有发布公告</p><p>点上面的「发布公告」，顾客会在会员端首页看到</p></div>
@@ -1014,9 +1018,9 @@ const McMore = {
                 {{ prize.status === 'on' ? '可兑换' : '已下架' }}
               </span>
               <div class="mc-row-actions">
-                <button class="fm-btn fm-btn-sm" @click="togglePrize(prize)">{{ prize.status === 'on' ? '下架' : '上架' }}</button>
                 <button class="fm-btn fm-btn-sm" @click="openPrizeEdit(prize)">编辑</button>
-                <button class="fm-btn fm-btn-sm fm-btn-danger" @click="removePrize(prize)">删除</button>
+                <button class="fm-btn fm-btn-sm mc-act" @click="togglePrize(prize)">{{ prize.status === 'on' ? '下架' : '上架' }}</button>
+                <button class="fm-btn fm-btn-sm mc-act is-danger" @click="removePrize(prize)">删除</button>
               </div>
             </div>
           </div>
@@ -1035,7 +1039,7 @@ const McMore = {
             <p class="fm-muted">{{ item.createdAt }}</p>
             <div class="mc-card-actions" v-if="item.status === 'pending'">
               <button class="fm-btn fm-btn-sm fm-btn-primary" @click="issue(item)">确认发放</button>
-              <button class="fm-btn fm-btn-sm fm-btn-danger" @click="cancelRedemption(item)">取消并退积分</button>
+              <button class="fm-btn fm-btn-sm mc-act is-danger" @click="cancelRedemption(item)">取消并退积分</button>
             </div>
           </div>
           <div class="fm-empty" v-if="!redemptions.length"><p>还没有兑换记录</p><p>顾客用积分兑换商品后，会记录在这里</p></div>
