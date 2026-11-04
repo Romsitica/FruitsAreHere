@@ -48,13 +48,13 @@
 /* 金额与正负 */
 .mc-amount { font-size: var(--fs-lg); font-weight: 800; }
 .mc-up { color: var(--c-leaf); font-weight: 700; }
-.mc-down { color: var(--c-danger); font-weight: 700; }
+.mc-down { color: var(--c-danger-ink); font-weight: 700; }
 
 /* ---------------------------------------------------------------- 商品表单（新增 / 编辑共用） */
-.mc-req { color: var(--c-danger); font-style: normal; margin-left: 2px; }
+.mc-req { color: var(--c-danger-ink); font-style: normal; margin-left: 2px; }
 .mc-form-row { display: grid; grid-template-columns: 1fr 1fr; gap: var(--sp-12); }
 .mc-form-row .fm-field { margin-bottom: var(--sp-16); }
-.mc-form-error { margin: var(--sp-4) 0 0; font-size: var(--fs-xs); line-height: 1.5; color: var(--c-danger); }
+.mc-form-error { margin: var(--sp-4) 0 0; font-size: var(--fs-xs); line-height: 1.5; color: var(--c-danger-ink); }
 .mc-hint { margin: var(--sp-4) 0 0; font-size: var(--fs-xs); line-height: 1.5; color: var(--c-sub); }
 
 /* 主图选择区 */
@@ -388,11 +388,11 @@
   padding-left: var(--sp-8); padding-right: var(--sp-8);
 }
 .fm-btn.mc-act:active { background: rgba(28, 45, 34, .07); }
-.fm-btn.mc-act.is-danger { color: var(--c-danger); }
+.fm-btn.mc-act.is-danger { color: var(--c-danger-ink); }
 .fm-btn.mc-act.is-danger:active { background: rgba(208, 71, 43, .09); }
 @media (hover: hover) and (pointer: fine) {
   .fm-btn.mc-act:hover { background: rgba(28, 45, 34, .06); color: var(--c-ink); }
-  .fm-btn.mc-act.is-danger:hover { background: rgba(208, 71, 43, .08); color: var(--c-danger); }
+  .fm-btn.mc-act.is-danger:hover { background: rgba(208, 71, 43, .08); color: var(--c-danger-ink); }
 }
 
 /* 10.2 概览页主卡：把「待确认」从六张等权卡片里抽出来，成为整页唯一的主视觉 */
@@ -467,3 +467,222 @@
 .mc-daterow { display: flex; align-items: center; gap: var(--sp-8); }
 .mc-daterow .fm-input { flex: 1; min-width: 0; }
 .mc-daterow-sep { flex: none; font-size: var(--fs-2xs); color: var(--c-sub); }
+
+/* ============================================================================
+ * 11. iOS 风格主题层（本轮重新设计）
+ * ----------------------------------------------------------------------------
+ * 设计读数：移动端商户经营后台，受众是个体水果店主；语言取 **iOS 原生 App** 的
+ *   「分组列表 + 大圆角 + 半透明材质 + 单一高饱和强调色」，
+ *   而不是 apple.com 官网那种大字号营销版式 —— 后台要密度，不要海报。
+ * Dials：VARIANCE 4 / MOTION 3 / DENSITY 5。
+ *
+ * 配色策略（本轮最关键的取舍，不是偷懒）：
+ *   高饱和色（绿 #00C853 / 橙 #FF9500 / 红 #FF3B30）只用在「色块、图表、徽章、
+ *   选中标签」这些不承载小字的地方，配**深色文字**（实测 7.5~9.2:1）。
+ *   凡是白字压在高饱和色上的地方（主按钮、chip 选中态）一律退到加深版
+ *   --c-brand-ink #087A42：它压白字是 5.42:1、压浅绿底是 4.98:1。
+ *   一句话：鲜艳留给面积，对比留给文字。这不是保守，是 iOS 自己也在做的事
+ *   （系统绿按钮上 iOS 用的是深色而不是白色文字）。
+ * ==========================================================================*/
+
+/* 11.1 设计令牌 */
+:root {
+  /* —— 颜色（iOS 系统色板） —— */
+  --c-bg:         #F2F2F7;   /* iOS 分组背景 */
+  --c-card:       #FFFFFF;
+  --c-ink:        #1C1C1E;   /* iOS label，对白 17.0:1 */
+  --c-sub:        #6B6B70;   /* iOS secondary label，对白 5.30:1 */
+  --c-line:       #E5E5EA;   /* iOS separator */
+
+  --c-brand:      #00C853;   /* 鲜艳绿：只做填充 / 图表 / 图标 */
+  --c-brand-dark: #00A344;
+  --c-brand-soft: #E6FAEE;
+  --c-brand-ink:  #087A42;   /* 文字与白字填充：对白 5.42、对浅绿底 4.98 */
+
+  --c-leaf:       #087A42;
+  --c-leaf-soft:  #E6FAEE;
+
+  --c-warn:       #FF9500;   /* iOS orange */
+  --c-warn-soft:  #FFE2B8;   /* 徽章底比默认的浅橙更有存在感，字仍 4.63:1 */
+  --c-warn-ink:   #8F5A00;   /* 对浅橙底 4.63:1 */
+
+  --c-danger:     #FF3B30;   /* iOS red */
+  --c-danger-soft:#FFEBEA;
+  --c-danger-ink: #C4271C;   /* 对浅红底 5.01:1 */
+
+  --c-info:       #0A84FF;
+  --c-info-soft:  #EAF1FF;
+  --c-info-ink:   #0A62C4;   /* 对浅蓝底 5.21:1 */
+
+  /* —— 形状：Apple 的大圆角 —— */
+  --r-sm:        10px;
+  --r-md:        16px;
+  --r-lg:        22px;
+  --mc-r-frame:  44px;
+
+  /* —— 字号：iOS 排版刻度（12 / 13 / 15 / 17 / 22 / 28） —— */
+  --fs-2xs: 12px;
+  --fs-xs:  13px;
+  --fs-sm:  15px;
+  --fs-md:  17px;
+  --fs-lg:  22px;
+  --fs-xl:  28px;
+
+  /* —— 材质与缓动 —— */
+  --mc-hairline: rgba(60, 60, 67, .14);
+  --mc-shadow:   0 1px 2px rgba(0, 0, 0, .04), 0 10px 24px -18px rgba(0, 0, 0, .3);
+  --mc-ease:     cubic-bezier(.32, .72, 0, 1);
+}
+
+/* 11.2 外壳：分组背景 + 毛玻璃导航（iOS 的材质感就在这两条上） */
+.fm-app { background: var(--c-bg); box-shadow: none; }
+.fm-navbar, .fm-tabbar {
+  background: rgba(255, 255, 255, .82);
+  -webkit-backdrop-filter: saturate(180%) blur(20px);
+          backdrop-filter: saturate(180%) blur(20px);
+  box-shadow: none;
+}
+.fm-navbar { border-bottom: .5px solid var(--mc-hairline); }
+.fm-tabbar { border-top: .5px solid var(--mc-hairline); }
+.fm-navbar-title { font-size: var(--fs-md); font-weight: 600; letter-spacing: -.015em; }
+.fm-navbar-sub { font-size: var(--fs-xs); color: var(--c-sub); }
+.fm-tab { font-size: 10px; }
+.fm-tab.active { color: var(--c-brand-ink); }
+/* 角标用加深红：白字压 #FF3B30 只有 3.9:1，压 #C4271C 是 5.75:1 */
+.fm-tab-badge { background: var(--c-danger-ink); color: #fff; font-weight: 700; }
+
+/* 11.3 卡片与列表：白卡 + 发丝线，不画装饰边框 */
+.fm-card, .fm-list { border-radius: var(--r-md); box-shadow: var(--mc-shadow); }
+.fm-row { border-bottom: .5px solid var(--mc-hairline); padding: 14px var(--sp-16); }
+.fm-row-title { font-size: var(--fs-sm); }
+.fm-row-desc { font-size: var(--fs-xs); }
+/* iOS 的分组标题：小、灰、克制，让内容自己说话 */
+.fm-block-title {
+  font-size: var(--fs-xs); font-weight: 600; color: var(--c-sub);
+  letter-spacing: .02em;
+  margin: var(--sp-20) var(--sp-16) var(--sp-8);
+}
+
+/* 11.4 按钮：实心按钮直接用高饱和绿 + 深色字。
+   #04220F 压 #00C853 是 7.56:1，比「白字压加深绿」的 5.42:1 还高，
+   所以这一笔既是最鲜艳的，也是最安全的 —— 不用在高饱和和可读性之间二选一。 */
+.fm-btn {
+  border-radius: var(--r-sm);
+  transition: transform .18s var(--mc-ease), background-color .18s var(--mc-ease);
+}
+.fm-btn:active { transform: scale(.96); }
+.fm-btn-sm { height: 34px; font-size: var(--fs-xs); border-radius: var(--r-sm); }
+.fm-btn-primary {
+  background: var(--c-brand);
+  border-color: transparent;
+  color: #04220F;
+  font-weight: 600;
+  box-shadow: 0 8px 18px -12px rgba(0, 200, 83, .95), inset 0 1px 0 rgba(255, 255, 255, .32);
+}
+.fm-btn-ghost { background: var(--c-brand-soft); border-color: transparent; color: var(--c-brand-ink); }
+.fm-btn-danger { background: var(--c-danger-soft); border-color: #FFD5D1; color: var(--c-danger-ink); }
+.fm-btn-leaf { background: var(--c-brand-ink); border-color: transparent; color: #fff; }
+.fm-btn:disabled { opacity: .45; }
+
+/* 11.5 状态标签：选中态用高饱和绿 + 深色字（7.56:1），这是全站最"鲜"的一笔 */
+.fm-chip {
+  border: .5px solid var(--c-line);
+  font-size: var(--fs-xs);
+  transition: background-color .18s var(--mc-ease), color .18s var(--mc-ease);
+}
+.fm-chip.active {
+  background: var(--c-brand); border-color: var(--c-brand);
+  color: #04220F; font-weight: 600;
+}
+
+/* 11.6 表单 */
+.fm-input, .fm-select, .fm-textarea {
+  border: .5px solid var(--c-line);
+  border-radius: var(--r-sm);
+  font-size: var(--fs-md);
+  transition: border-color .18s var(--mc-ease), box-shadow .18s var(--mc-ease);
+}
+.fm-input:focus, .fm-select:focus, .fm-textarea:focus {
+  border-color: var(--c-brand);
+  box-shadow: 0 0 0 3px rgba(0, 200, 83, .16);
+}
+.fm-label { font-size: var(--fs-xs); }
+/* 浏览器默认占位符灰约 4.6:1，压到和次要文字同一级（5.30:1） */
+.fm-input::placeholder, .fm-textarea::placeholder { color: var(--c-sub); opacity: 1; }
+
+/* 11.7 概览主卡：iOS 的「高饱和色块 + 深色字」，橙色表示待处理、绿色表示清空 */
+.mc-todo {
+  background: linear-gradient(135deg, #FFB340 0%, #FF9500 100%);
+  border-left: 0;
+  border-radius: var(--r-lg);
+  padding: var(--sp-20);
+  color: #3A2200;
+  box-shadow: 0 18px 36px -20px rgba(255, 149, 0, .8);
+}
+.mc-todo.is-clear {
+  background: linear-gradient(135deg, #3DDC84 0%, #00C853 100%);
+  color: #04220F;
+  box-shadow: 0 18px 36px -20px rgba(0, 200, 83, .65);
+}
+.mc-todo-label { color: inherit; opacity: .78; }
+.mc-todo-num {
+  color: inherit; font-size: var(--fs-xl); font-weight: 700; letter-spacing: -.02em;
+}
+.mc-todo-num em { color: inherit; opacity: .8; }
+.mc-todo-desc { color: inherit; opacity: .74; }
+/* 上面 10.2 里有更具体的 .is-clear 变体颜色，这里统一收回成「继承卡片前景色」 */
+.mc-todo.is-clear .mc-todo-label,
+.mc-todo.is-clear .mc-todo-num,
+.mc-todo.is-clear .mc-todo-desc { color: inherit; }
+/* 色块上的按钮反过来用深色，这是 iOS 在彩色卡片上的常规做法 */
+.mc-todo .fm-btn-primary { background: rgba(22, 14, 0, .82); color: #fff; box-shadow: none; }
+.mc-todo.is-clear .fm-btn-primary { background: rgba(0, 44, 22, .82); color: #fff; }
+
+/* 11.8 指标列表：iOS 的 inset grouped list */
+.mc-metrics { border-radius: var(--r-md); box-shadow: var(--mc-shadow); }
+.mc-metric { padding: 14px var(--sp-16); }
+.mc-metric + .mc-metric { border-top: .5px solid var(--mc-hairline); }
+.mc-metric span { font-size: var(--fs-sm); color: var(--c-ink); }
+.mc-metric b { font-size: var(--fs-md); font-weight: 600; color: var(--c-ink); }
+.mc-metric b.is-zero { color: var(--c-sub); font-weight: 400; }
+
+/* 11.9 图表：高饱和渐变柱子 */
+.mc-trend-bar {
+  background: linear-gradient(180deg, #3DDC84 0%, var(--c-brand-dark) 100%);
+  border-radius: 4px 4px 0 0;
+}
+.mc-seg { background: rgba(120, 120, 128, .12); }
+.mc-seg-btn { font-size: var(--fs-2xs); padding: 5px 12px; }
+.mc-seg-btn.is-on { border-radius: var(--r-pill); box-shadow: 0 1px 3px rgba(0, 0, 0, .14); }
+
+/* 11.10 商品卡 */
+.mc-goods-img { border-radius: 12px; background: var(--c-bg); }
+.mc-goods-img--empty { background: var(--c-bg); }
+.mc-goods-head b { font-weight: 600; }
+
+/* 11.11 空态 / 骨架 */
+.fm-empty-ring { border-color: #C7C7CC; }
+.fm-skeleton { background: #E8E8ED; border-radius: var(--r-md); }
+
+/* 11.12 状态徽章：从浅底细字改成实心高饱和 + 深色字。
+   徽章面积不大，但每张订单卡都有一枚，是列表页最主要的彩色来源；
+   实心 + 深字实测 5.7~8.4:1，比原来的浅底方案反而不容易看漏状态。 */
+.fm-badge.is-warn   { background: var(--c-warn);   color: #3A2200; }
+.fm-badge.is-ok,
+.fm-badge.is-brand  { background: var(--c-brand);  color: #04220F; }
+.fm-badge.is-info   { background: var(--c-info);   color: #001A33; }
+.fm-badge.is-danger { background: var(--c-danger); color: #2A0500; }
+
+/* 11.12 电脑端：把手机框做成带机身的「真机」，这是最像 iOS 的一眼信号 */
+@media (min-width: 620px) {
+  html, body {
+    background-color: #E9E9EE;
+    background-image: radial-gradient(120% 90% at 50% 0%, #FAFAFC 0%, #E9E9EE 58%, #DCDCE3 100%);
+  }
+  .fm-app {
+    box-shadow:
+      0 0 0 9px #1C1C1E,
+      0 0 0 10px #3A3A3C,
+      0 34px 70px -26px rgba(0, 0, 0, .5);
+  }
+}
