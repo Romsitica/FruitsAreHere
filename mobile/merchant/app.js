@@ -50,18 +50,33 @@ const STATUS_CLASS = {
   pending: 'is-warn', confirmed: 'is-info', completed: 'is-ok', cancelled: 'is-muted',
 };
 
+/* 后端 shop/api.py 的 MAX_PRODUCT_IMAGES，超出会直接 400，这里用来提前拦住 */
+const MAX_IMAGES = 6;
+
 /* ============================================================ 经营概览 */
 const McOverview = {
-  data() { return { Auth, stats: null, pending: [], loading: true }; },
+  data() { return { Auth, stats: null, pending: [], loading: true, days: 7 }; },
+  computed: {
+    trendRows() { return (this.stats && this.stats.revenueTrend) || []; },
+    trendMax() { return this.trendRows.reduce((m, d) => Math.max(m, Number(d.salesCents) || 0), 0); },
+    trendTotal() { return this.trendRows.reduce((s, d) => s + (Number(d.salesCents) || 0), 0); },
+  },
   created() { this.load(); },
   methods: {
     fmtMoney: FM.fmtMoney,
     go(path) { router.navigate(path); },
+    setDays(n) { if (this.days === n) return; this.days = n; this.load(); },
+    /* 柱高用 px 而不是百分比：flex 容器里的百分比高度在部分安卓 WebView 会塌成 0 */
+    barPx(d) {
+      const v = Number(d.salesCents) || 0;
+      if (!v) return '2px';
+      return Math.max(4, Math.round(v / (this.trendMax || 1) * 84)) + 'px';
+    },
     async load() {
       this.loading = true;
       try {
         const [stats, orders] = await Promise.all([
-          api.get('/merchant/stats'),
+          api.get('/merchant/stats?days=' + this.days),
           api.get('/orders?status=pending'),
         ]);
         this.stats = stats.stats;
@@ -82,26 +97,28 @@ const McOverview = {
     </div>
     <template v-else-if="stats">
       <div class="fm-section">
-        <div class="fm-stat-grid">
-          <div class="fm-stat"><span>累计营收</span><b>{{ fmtMoney(stats.salesCents) }}</b><em>已完成订单</em></div>
-          <div class="fm-stat mc-stat--todo"><span>待确认预约</span><b>{{ stats.pendingCount }}</b><em>共 {{ stats.orderCount }} 笔订单</em></div>
-          <div class="fm-stat"><span>会员数量</span><b>{{ stats.memberCount }}</b><em>余额合计 {{ fmtMoney(stats.balanceCents) }}</em></div>
-          <div class="fm-stat mc-stat--soft"><span>在售商品</span><b>{{ stats.productOnCount }}</b><em>已下架 {{ stats.productOffCount }} 款</em></div>
-          <div class="fm-stat"><span>已完成订单</span><b>{{ stats.completedCount }}</b><em>待取货 {{ stats.confirmedCount }} 单</em></div>
-          <div class="fm-stat mc-stat--soft"><span>累计发放积分</span><b>{{ stats.pointsIssued }}</b><em>兑换记录 {{ stats.redemptionCount }} 笔</em></div>
+        <div class="mc-todo" :class="{ 'is-clear': !stats.pendingCount }">
+          <div class="mc-todo-main">
+            <span class="mc-todo-label">待确认预约</span>
+            <b class="mc-todo-num">{{ stats.pendingCount }}<em>笔</em></b>
+            <p class="mc-todo-desc" v-if="stats.pendingCount">顾客在会员端下单后在这里等你确认，确认后可到店取货</p>
+            <p class="mc-todo-desc" v-else>暂时没有待确认的预约，今天的单都处理完了</p>
+          </div>
+          <button v-if="stats.pendingCount" class="fm-btn fm-btn-sm fm-btn-primary" @click="go('/orders')">去处理</button>
+        </div>
+
+        <div class="mc-metrics">
+          <div class="mc-metric"><span>累计营收</span><b :class="{ 'is-zero': !stats.salesCents }">{{ fmtMoney(stats.salesCents) }}</b></div>
+          <div class="mc-metric"><span>已完成订单</span><b :class="{ 'is-zero': !stats.completedCount }">{{ stats.completedCount }}</b></div>
+          <div class="mc-metric"><span>会员数量</span><b :class="{ 'is-zero': !stats.memberCount }">{{ stats.memberCount }}</b></div>
+          <div class="mc-metric"><span>在售商品</span><b :class="{ 'is-zero': !stats.productOnCount }">{{ stats.productOnCount }}</b></div>
+          <div class="mc-metric"><span>累计发放积分</span><b :class="{ 'is-zero': !stats.pointsIssued }">{{ stats.pointsIssued }}</b></div>
         </div>
       </div>
 
-      <div class="fm-block-title">待确认预约
-        <button class="fm-btn fm-btn-sm fm-btn-ghost" @click="go('/orders')">全部</button>
-      </div>
-      <div class="fm-section">
-        <div v-if="!pending.length" class="fm-empty">
-          <div class="fm-empty-ring"></div>
-          <p>暂时没有待确认的预约</p>
-          <p>顾客在会员端下单后，会出现在这里等你确认</p>
-        </div>
-        <div class="fm-list" v-else>
+      <div class="fm-block-title" v-if="pending.length">待处理明细</div>
+      <div class="fm-section" v-if="pending.length">
+        <div class="fm-list">
           <div class="fm-row" v-for="order in pending" :key="order.id">
             <div class="fm-row-main">
               <p class="fm-row-title">{{ order.productName }} × {{ order.quantity }}</p>
@@ -109,6 +126,30 @@ const McOverview = {
             </div>
             <div class="fm-row-side"><b class="fm-price-sm">{{ fmtMoney(order.totalCents) }}</b></div>
           </div>
+        </div>
+      </div>
+
+      <div class="fm-block-title">营收趋势
+        <span class="mc-seg">
+          <button :class="['mc-seg-btn', days === 7 ? 'is-on' : '']" @click="setDays(7)">7 天</button>
+          <button :class="['mc-seg-btn', days === 30 ? 'is-on' : '']" @click="setDays(30)">30 天</button>
+        </span>
+      </div>
+      <div class="fm-section">
+        <div class="fm-card">
+          <div class="mc-trend" :class="{ 'mc-trend--dense': days === 30 }"
+               role="img" :aria-label="days + ' 天营收趋势，合计 ' + fmtMoney(trendTotal)">
+            <div class="mc-trend-col" v-for="(d, i) in trendRows" :key="d.date">
+              <span class="mc-trend-track">
+                <span class="mc-trend-bar" :style="{ height: barPx(d) }"></span>
+              </span>
+              <span class="mc-trend-x">{{ days === 30 && i % 5 !== 0 ? '' : d.date.slice(5) }}</span>
+            </div>
+          </div>
+          <p class="mc-hint">
+            {{ days }} 天合计 {{ fmtMoney(trendTotal) }}
+            <span v-if="!trendTotal">· 这段时间还没有已完成订单，订单完成后才计入营收</span>
+          </p>
         </div>
       </div>
 
@@ -131,16 +172,46 @@ const McOverview = {
 
 /* ============================================================ 预约订单 */
 const McOrders = {
-  data() { return { orders: [], status: 'pending', keyword: '', loading: true, detail: null, tabs: ORDER_TABS, pickMode: false, selected: [], batchBusy: false }; },
+  data() { return { orders: [], status: 'pending', keyword: '', dateFrom: '', dateTo: '', showDate: false, loading: true, detail: null, tabs: ORDER_TABS, pickMode: false, selected: [], batchBusy: false }; },
   created() { this.load(); },
+  computed: {
+    /* 按日期把订单分组：iOS 的列表习惯把同一天的东西收在一起，比一条平铺到底好扫读。
+       分组只用订单自己的 createdAt，不改接口、不改排序。 */
+    groups() {
+      const pad = (n) => (n < 10 ? '0' + n : '' + n);
+      const dayKey = (d) => d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate());
+      const now = new Date();
+      const today = dayKey(now);
+      const yesterday = dayKey(new Date(now.getTime() - 86400000));
+      const out = [];
+      const index = {};
+      (this.orders || []).forEach((o) => {
+        const key = String(o.createdAt || '').slice(0, 10) || '未知日期';
+        if (!index[key]) {
+          let label = key;
+          if (key === today) label = '今天';
+          else if (key === yesterday) label = '昨天';
+          else if (key.length === 10) label = Number(key.slice(5, 7)) + ' 月 ' + Number(key.slice(8, 10)) + ' 日';
+          index[key] = { key: key, label: label, items: [] };
+          out.push(index[key]);
+        }
+        index[key].items.push(o);
+      });
+      return out;
+    },
+  },
   methods: {
     fmtMoney: FM.fmtMoney,
     statusClass(s) { return STATUS_CLASS[s] || 'is-muted'; },
+    clearDates() { this.dateFrom = ''; this.dateTo = ''; this.load(); },
     async load() {
       this.loading = true;
       try {
         const q = new URLSearchParams({ status: this.status });
         if (this.keyword) q.set('keyword', this.keyword);
+        /* 日期区间走服务端筛选（后端按 YYYY-MM-DD 解析，含首尾两天） */
+        if (this.dateFrom) q.set('dateFrom', this.dateFrom);
+        if (this.dateTo) q.set('dateTo', this.dateTo);
         this.orders = (await api.get('/orders?' + q.toString())).orders;
       } catch (e) {
         FM.toast(e.message, 'danger');
@@ -220,6 +291,8 @@ const McOrders = {
     <header class="fm-navbar">
       <div class="fm-navbar-title">预约订单</div>
       <div class="fm-navbar-actions">
+        <button v-if="!pickMode" :class="['fm-btn', 'fm-btn-sm', (dateFrom || dateTo) ? 'fm-btn-ghost' : '']"
+                @click="showDate = !showDate">筛选</button>
         <button v-if="!pickMode" class="fm-btn fm-btn-sm" @click="enterPick">批量</button>
         <button v-else class="fm-btn fm-btn-sm fm-btn-primary" @click="exitPick">退出批量</button>
       </div>
@@ -234,13 +307,20 @@ const McOrders = {
       <span class="mc-batch-count">已选 {{ selected.length }} 笔</span>
       <button class="fm-btn fm-btn-sm fm-btn-primary" :disabled="batchBusy"
               @click="batch('confirmed', '确认')">{{ batchBusy ? '处理中…' : '批量确认' }}</button>
-      <button class="fm-btn fm-btn-sm fm-btn-leaf" :disabled="batchBusy"
+      <button class="fm-btn fm-btn-sm mc-act" :disabled="batchBusy"
               @click="batch('completed', '完成')">批量完成</button>
     </div>
     <form class="fm-section mc-search" @submit.prevent="load">
       <input class="fm-input" v-model.trim="keyword" placeholder="订单号 / 商品 / 手机号">
       <button class="fm-btn" type="submit">搜索</button>
     </form>
+    <!-- 日期筛选：默认收起，避免首屏被筛选控件占满 -->
+    <div class="fm-section mc-daterow" v-if="showDate">
+      <input class="fm-input" type="date" v-model="dateFrom" @change="load" aria-label="开始日期">
+      <span class="mc-daterow-sep">至</span>
+      <input class="fm-input" type="date" v-model="dateTo" @change="load" aria-label="结束日期">
+      <button v-if="dateFrom || dateTo" class="fm-btn fm-btn-sm mc-act" @click="clearDates">清除</button>
+    </div>
 
     <div class="fm-section">
       <div v-if="loading" class="fm-section">
@@ -251,28 +331,38 @@ const McOrders = {
         <p>这个状态下还没有订单</p>
         <p>切换上方的状态标签，可以查看其他状态的订单</p>
       </div>
-      <div class="fm-card" v-for="order in orders" :key="order.id"
-           :class="{ 'mc-card--picked': pickMode && isPicked(order) }"
-           @click="pickMode ? togglePick(order) : (detail = order)">
-        <div class="mc-order-head">
-          <span class="mc-pick" v-if="pickMode" :class="{ 'is-on': isPicked(order) }">{{ isPicked(order) ? '✓' : '' }}</span>
-          <b>{{ order.orderNo }}</b>
-          <span class="fm-badge" :class="statusClass(order.status)">{{ order.statusText }}</span>
-        </div>
-        <p class="fm-strong" style="margin:8px 0 2px">{{ order.productName }} × {{ order.quantity }}</p>
-        <p class="fm-muted">{{ order.memberName }} · {{ order.memberPhone }}</p>
-        <p class="fm-muted">{{ order.pickupTime || '时间不限' }} · {{ order.payMethod === 'balance' ? '余额支付' : '到店支付' }}</p>
-        <div class="mc-order-foot">
-          <span class="fm-price-sm">{{ fmtMoney(order.totalCents) }}</span>
-          <span class="mc-order-actions">
-            <button v-if="order.status === 'pending'" class="fm-btn fm-btn-sm fm-btn-primary"
-                    @click.stop="change(order, 'confirmed', '确认')">确认</button>
-            <button v-if="order.status === 'pending' || order.status === 'confirmed'" class="fm-btn fm-btn-sm fm-btn-leaf"
-                    @click.stop="change(order, 'completed', '完成')">完成</button>
-            <button v-if="order.status === 'pending' || order.status === 'confirmed'" class="fm-btn fm-btn-sm fm-btn-danger"
-                    @click.stop="change(order, 'cancelled', '取消')">取消</button>
-          </span>
-        </div>
+      <div v-else>
+        <template v-for="group in groups" :key="group.key">
+          <div class="mc-group">
+            <span class="mc-group-label">{{ group.label }}</span>
+            <span class="mc-group-count">{{ group.items.length }} 笔</span>
+          </div>
+          <div class="fm-card mc-order" v-for="order in group.items" :key="order.id"
+               :class="{ 'mc-card--picked': pickMode && isPicked(order) }"
+               @click="pickMode ? togglePick(order) : (detail = order)">
+            <div class="mc-order-head">
+              <span class="mc-pick" v-if="pickMode" :class="{ 'is-on': isPicked(order) }">{{ isPicked(order) ? '✓' : '' }}</span>
+              <b class="mc-order-no">{{ order.orderNo }}</b>
+              <span class="fm-badge" :class="statusClass(order.status)">{{ order.statusText }}</span>
+            </div>
+            <p class="mc-order-name">{{ order.productName }}<span class="mc-order-qty">× {{ order.quantity }}</span></p>
+            <p class="mc-order-sub">{{ order.memberName }} · {{ order.memberPhone }}</p>
+            <p class="mc-order-sub"><span class="mc-order-when">{{ order.pickupTime || '时间不限' }}</span> · {{ order.payMethod === 'balance' ? '余额支付' : '到店支付' }}</p>
+            <div class="mc-order-foot">
+              <span class="mc-order-price">{{ fmtMoney(order.totalCents) }}</span>
+              <span class="mc-order-actions">
+                <button v-if="order.status === 'pending'" class="fm-btn fm-btn-sm fm-btn-primary"
+                        @click.stop="change(order, 'confirmed', '确认')">确认</button>
+                <!-- 每张卡只留一颗实心按钮：待确认时是「确认」，已确认时换成「完成」 -->
+                <button v-if="order.status === 'pending' || order.status === 'confirmed'"
+                        :class="['fm-btn', 'fm-btn-sm', order.status === 'confirmed' ? 'fm-btn-primary' : 'mc-act']"
+                        @click.stop="change(order, 'completed', '完成')">完成</button>
+                <button v-if="order.status === 'pending' || order.status === 'confirmed'" class="fm-btn fm-btn-sm mc-act is-danger"
+                        @click.stop="change(order, 'cancelled', '取消')">取消</button>
+              </span>
+            </div>
+          </div>
+        </template>
       </div>
     </div>
 
@@ -300,12 +390,23 @@ const McProducts = {
     return {
       products: [], categories: [], keyword: '', category: '', loading: true,
       formOpen: false, mode: 'create', form: null, errors: {}, saving: false,
-      uploading: false, previewUrl: '',
+      uploading: false, urlDraft: '', maxImages: MAX_IMAGES,
     };
   },
   created() { this.load(); },
   computed: {
     formTitle() { return this.mode === 'create' ? '新增商品' : '编辑商品'; },
+    /* 顶部汇总：在售 / 下架 / 缺货，让店主一眼知道库存健康度，不用逐张卡去数 */
+    summary() {
+      const list = this.products || [];
+      const on = list.filter((p) => p.status === 'on').length;
+      return {
+        total: list.length,
+        on: on,
+        off: list.length - on,
+        out: list.filter((p) => Number(p.stock) <= 0).length,
+      };
+    },
   },
   methods: {
     fmtMoney: FM.fmtMoney,
@@ -332,18 +433,23 @@ const McProducts = {
     blankForm() {
       return {
         id: null, name: '', category: '时令鲜果', priceYuan: '', originPriceYuan: '',
-        unit: '份', stock: 0, status: 'on', description: '', imageUrl: '',
+        unit: '份', stock: 0, status: 'on', description: '', images: [],
       };
     },
     openCreate() {
       this.mode = 'create';
       this.form = this.blankForm();
       this.errors = {};
-      this.previewUrl = '';
+      this.urlDraft = '';
       this.formOpen = true;
     },
     openEdit(product) {
       this.mode = 'edit';
+      /* 后端同时保留了 imageUrl（封面）与 images（图集）。
+         老商品只有封面没有图集，这里把封面当作第一张，避免点开编辑看不到图。 */
+      const gallery = Array.isArray(product.images) && product.images.length
+        ? product.images.slice()
+        : (product.imageUrl ? [product.imageUrl] : []);
       this.form = {
         id: product.id,
         name: product.name,
@@ -354,10 +460,10 @@ const McProducts = {
         stock: product.stock,
         status: product.status,
         description: product.description || '',
-        imageUrl: product.imageUrl || '',
+        images: gallery.slice(0, 6),
       };
       this.errors = {};
-      this.previewUrl = product.imageUrl || '';
+      this.urlDraft = '';
       this.formOpen = true;
     },
     closeForm() {
@@ -365,7 +471,7 @@ const McProducts = {
       this.formOpen = false;
       this.form = null;
       this.errors = {};
-      this.previewUrl = '';
+      this.urlDraft = '';
     },
 
     /* -------------------------------------------- 前端校验（后端还会再校验一次） */
@@ -395,7 +501,10 @@ const McProducts = {
       if (String(f.category || '').length > 32) errors.category = '分类不能超过 32 个字';
       if (String(f.unit || '').length > 32) errors.unit = '规格单位不能超过 32 个字';
       if (String(f.description || '').length > 2000) errors.description = '商品详情不能超过 2000 个字';
-      if (String(f.imageUrl || '').length > 512) errors.imageUrl = '图片地址不能超过 512 个字符';
+      /* 图集：最多 6 张，单张地址不超过 512 字符（后端同样会拦，这里先挡住少跑一次网络） */
+      const gallery = Array.isArray(f.images) ? f.images : [];
+      if (gallery.length > 6) errors.images = '最多只能放 6 张图';
+      else if (gallery.some((u) => String(u).trim().length > 512)) errors.images = '单张图片地址不能超过 512 个字符';
 
       this.errors = errors;
       const count = Object.keys(errors).length;
@@ -421,8 +530,12 @@ const McProducts = {
         stock: stockRaw === '' ? 0 : Number(stockRaw),
         status: f.status === 'off' ? 'off' : 'on',
         description: String(f.description || '').trim(),
-        imageUrl: String(f.imageUrl || '').trim(),
+        /* 图集整体提交。注意：不是每传一张就保存一次 —— 那样后一次会把前一次覆盖掉，
+           这是交接文档里特意点出来的坑。这里只在点「保存」时一次性提交。 */
+        images: (Array.isArray(f.images) ? f.images : [])
+          .map((u) => String(u || '').trim()).filter(Boolean).slice(0, 6),
       };
+      payload.imageUrl = payload.images[0] || '';
       this.saving = true;
       try {
         if (this.mode === 'create') {
@@ -435,34 +548,43 @@ const McProducts = {
           : '商品已更新');
         this.formOpen = false;
         this.form = null;
-        this.previewUrl = '';
+        this.urlDraft = '';
         this.load();
       } catch (e) {
         FM.toast(e.message, 'danger');
       } finally { this.saving = false; }
     },
 
-    /* -------------------------------------------- 主图：拍照 / 相册 / 直链 */
-    pickImage(event) {
+    /* -------------------------------------------- 图集：拍照 / 相册 / 直链
+     * 一次可选多张，逐张上传后追加进 form.images，最多 6 张。
+     * 关键：上传只往数组里追加，不写库；点「保存」时才整体提交一次。
+     * 交接文档特意提过这个坑——每传一张就保存一次，后一次会把前一次覆盖掉。 */
+    async pickImage(event) {
       const input = event.target;
-      const file = input.files && input.files[0];
+      const files = Array.from(input.files || []);
       input.value = '';                       // 清空，允许连续选同一张图
-      if (!file) return;
-      if (!/^image\//.test(file.type)) { FM.toast('请选择图片文件', 'danger'); return; }
-      if (file.size > 5 * 1024 * 1024) { FM.toast('图片不能超过 5MB', 'danger'); return; }
+      if (!files.length) return;
 
-      const reader = new FileReader();        // 先本地出预览，店家立刻能看到效果
-      reader.onload = () => { this.previewUrl = String(reader.result || ''); };
-      reader.readAsDataURL(file);
+      const room = MAX_IMAGES - this.form.images.length;
+      if (room <= 0) { FM.toast('最多 ' + MAX_IMAGES + ' 张，先删掉一张再加', 'danger'); return; }
 
-      this.uploadImage(file);
+      let accepted = 0;
+      for (const file of files) {
+        if (accepted >= room) break;
+        if (!/^image\//.test(file.type)) { FM.toast(file.name + ' 不是图片，已跳过', 'danger'); continue; }
+        if (file.size > 5 * 1024 * 1024) { FM.toast(file.name + ' 超过 5MB，已跳过', 'danger'); continue; }
+        accepted += 1;
+        await this.uploadImage(file);         // 串行：一张传完再传下一张
+      }
+      if (files.length > accepted) {
+        FM.toast('最多 ' + MAX_IMAGES + ' 张，多出来的没有添加', 'warning');
+      }
     },
 
     /**
-     * 上传主图。
+     * 上传单张图片并追加到图集。
      * 注意：共享层的 api.post 会把 body 强制 JSON 序列化，传不了文件，
      * 所以这里用原生 fetch + FormData，并手动带上 Authorization。
-     * 后端 POST /merchant/upload 就绪后，本函数不用再改（只换 UI 文案）。
      */
     async uploadImage(file) {
       this.uploading = true;
@@ -474,30 +596,50 @@ const McProducts = {
         if (api.state.token) headers.Authorization = 'Bearer ' + api.state.token;
         const res = await fetch(base + '/merchant/upload', { method: 'POST', headers: headers, body: fd });
 
-        // 严格校验：接口没上线时不会返回干净的 404 ——
-        // fruitmall/urls.py 末尾有一条万能兜底路由，未知的 POST 会返回 405 + HTML，
-        // 所以不能只看 res.ok，必须确认拿到的是 { ok: true, url } 这种真响应。
+        // 严格校验：不能只看 res.ok —— 未知路径可能返回 405 + HTML，
+        // 必须确认拿到的是 { ok: true, url } 这种真响应。
         let data = null;
         try { data = await res.json(); } catch (err) { data = null; }
         if (!res.ok || !data || data.ok !== true || !data.url) {
           throw new Error((data && data.ok === false && data.error) ? data.error : 'NOT_READY');
         }
 
-        this.form.imageUrl = data.url;
-        this.previewUrl = data.url;
-        FM.toast('图片已上传');
+        if (this.form.images.length >= MAX_IMAGES) return;
+        this.form.images.push(data.url);
+        FM.toast('已添加第 ' + this.form.images.length + ' 张');
       } catch (e) {
         const msg = String((e && e.message) || '');
         FM.toast(msg === 'NOT_READY'
-          ? '图片上传功能还没上线（后端 /merchant/upload 未提供），请先把图片地址粘到输入框'
+          ? '上传失败：服务端没有返回图片地址，请重试'
           : msg, 'danger');
       } finally { this.uploading = false; }
     },
 
-    /** 手动粘贴图片地址后同步预览 */
-    useUrl() {
-      const url = String(this.form.imageUrl || '').trim();
-      if (url) this.previewUrl = url;
+    removeImage(index) {
+      if (this.saving) return;
+      this.form.images.splice(index, 1);
+    },
+
+    /** 点缩略图把它提到第一位——第一位就是封面 */
+    setCover(index) {
+      if (index <= 0 || this.saving) return;
+      const list = this.form.images;
+      const url = list.splice(index, 1)[0];
+      list.unshift(url);
+      FM.toast('已设为封面');
+    },
+
+    /** 粘贴图片直链后追加到图集 */
+    addUrl() {
+      const url = String(this.urlDraft || '').trim();
+      if (!url) return;
+      if (this.form.images.length >= MAX_IMAGES) {
+        FM.toast('最多 ' + MAX_IMAGES + ' 张，先删掉一张再加', 'danger');
+        return;
+      }
+      if (url.length > 512) { FM.toast('图片地址不能超过 512 个字符', 'danger'); return; }
+      this.form.images.push(url);
+      this.urlDraft = '';
     },
     async toggle(product) {
       const next = product.status === 'on' ? 'off' : 'on';
@@ -545,6 +687,13 @@ const McProducts = {
               :class="['fm-chip', category === name ? 'active' : '']" @click="pickCategory(name)">{{ name }}</button>
     </div>
 
+    <!-- 库存概览：有数据才出现，空店时不显示「0 在售」这种噪音 -->
+    <div class="mc-summary" v-if="!loading && summary.total">
+      <span class="mc-summary-item"><b>{{ summary.on }}</b>在售</span>
+      <span class="mc-summary-item"><b>{{ summary.off }}</b>下架</span>
+      <span class="mc-summary-item" :class="{ 'is-alert': summary.out > 0 }"><b>{{ summary.out }}</b>缺货</span>
+    </div>
+
     <div class="fm-section">
       <div v-if="loading" class="fm-section">
         <div class="fm-skeleton" v-for="n in 4" :key="n"></div>
@@ -558,27 +707,31 @@ const McProducts = {
         </template>
       </div>
       <div v-else class="fm-card mc-goods" v-for="item in products" :key="item.id">
-        <img v-if="item.imageUrl" class="mc-goods-img" :src="item.imageUrl" :alt="item.name"
-             loading="lazy" @error="item.imageUrl = ''">
-        <div v-else class="mc-goods-img mc-goods-img--empty">无图</div>
-        <div class="mc-goods-main">
-          <div class="mc-goods-head">
-            <b>{{ item.name }}</b>
-            <span class="fm-badge" :class="item.status === 'on' ? 'is-ok' : 'is-muted'">
-              {{ item.status === 'on' ? '已上架' : '已下架' }}
-            </span>
+        <div class="mc-goods-top">
+          <img v-if="item.imageUrl" class="mc-goods-img" :src="item.imageUrl" :alt="item.name"
+               loading="lazy" @error="item.imageUrl = ''">
+          <div v-else class="mc-goods-img mc-goods-img--empty">无图</div>
+          <div class="mc-goods-main">
+            <div class="mc-goods-head">
+              <b>{{ item.name }}</b>
+              <span class="fm-badge" :class="item.status === 'on' ? 'is-ok' : 'is-muted'">
+                {{ item.status === 'on' ? '在售' : '已下架' }}
+              </span>
+            </div>
+            <p class="mc-goods-meta">{{ item.category }} · {{ item.unit }} · 已售 {{ item.sales }}</p>
+            <div class="mc-goods-foot">
+              <span class="mc-goods-price">{{ fmtMoney(item.priceCents) }}</span>
+              <span class="fm-origin" v-if="item.originPriceCents">{{ fmtMoney(item.originPriceCents) }}</span>
+              <span class="mc-stock" :class="{ 'is-low': Number(item.stock) > 0 && Number(item.stock) <= 10, 'is-out': Number(item.stock) <= 0 }">
+                {{ Number(item.stock) <= 0 ? '缺货' : (Number(item.stock) <= 10 ? '仅剩 ' + item.stock : '库存 ' + item.stock) }}
+              </span>
+            </div>
           </div>
-          <p class="fm-muted">{{ item.category }} · {{ item.unit }}</p>
-          <div class="mc-goods-foot">
-            <span class="fm-price-sm">{{ fmtMoney(item.priceCents) }}</span>
-            <span class="fm-origin" v-if="item.originPriceCents">{{ fmtMoney(item.originPriceCents) }}</span>
-            <span class="fm-muted">库存 {{ item.stock }} · 已售 {{ item.sales }}</span>
-          </div>
-          <div class="mc-goods-actions">
-            <button class="fm-btn fm-btn-sm" @click="toggle(item)">{{ item.status === 'on' ? '下架' : '上架' }}</button>
-            <button class="fm-btn fm-btn-sm" @click="openEdit(item)">编辑</button>
-            <button class="fm-btn fm-btn-sm fm-btn-danger" @click="remove(item)">删除</button>
-          </div>
+        </div>
+        <div class="mc-goods-actions">
+          <button class="fm-btn fm-btn-sm" @click="openEdit(item)">编辑</button>
+          <button class="fm-btn fm-btn-sm mc-act" @click="toggle(item)">{{ item.status === 'on' ? '下架' : '上架' }}</button>
+          <button class="fm-btn fm-btn-sm mc-act is-danger" @click="remove(item)">删除</button>
         </div>
       </div>
     </div>
@@ -588,25 +741,37 @@ const McProducts = {
       <h3 class="fm-sheet-title">{{ formTitle }}</h3>
 
       <div class="fm-field">
-        <label class="fm-label">商品主图</label>
-        <div class="mc-picker">
-          <img v-if="previewUrl" class="mc-picker-img" :src="previewUrl" alt="主图预览" @error="previewUrl = ''">
-          <div v-else class="mc-picker-empty">还没有图片</div>
-          <div class="mc-picker-btns">
-            <label class="fm-btn fm-btn-sm fm-btn-primary">
-              {{ uploading ? '上传中…' : '拍照' }}
-              <input class="mc-file" type="file" accept="image/*" capture="environment" :disabled="uploading" @change="pickImage">
-            </label>
-            <label class="fm-btn fm-btn-sm">
-              从相册选
-              <input class="mc-file" type="file" accept="image/*" :disabled="uploading" @change="pickImage">
-            </label>
+        <label class="fm-label">商品图集 <span class="mc-label-note">最多 {{ maxImages }} 张，第一张是封面</span></label>
+        <div class="mc-gallery" v-if="form">
+          <div class="mc-gallery-item" v-for="(url, i) in form.images" :key="url + '@' + i">
+            <img :src="url" :alt="'第 ' + (i + 1) + ' 张图'" @click="setCover(i)"
+                 :title="i === 0 ? '当前封面' : '点一下设为封面'">
+            <span class="mc-gallery-cover" v-if="i === 0">封面</span>
+            <button type="button" class="mc-gallery-del" :disabled="saving"
+                    :aria-label="'删除第 ' + (i + 1) + ' 张图'" @click.stop="removeImage(i)">×</button>
+          </div>
+          <!-- 上满 6 张就把添加入口收起来，避免点了报错 -->
+          <div class="mc-gallery-add" v-if="form.images.length < maxImages">
+            <div class="mc-gallery-add-hint">{{ uploading ? '上传中…' : '添加图片' }}</div>
+            <div class="mc-gallery-add-btns">
+              <label class="mc-gallery-btn">
+                拍照
+                <input class="mc-file" type="file" accept="image/*" capture="environment" multiple
+                       :disabled="uploading" @change="pickImage">
+              </label>
+              <label class="mc-gallery-btn">
+                相册
+                <input class="mc-file" type="file" accept="image/*" multiple
+                       :disabled="uploading" @change="pickImage">
+              </label>
+            </div>
           </div>
         </div>
-        <input class="fm-input mc-picker-url" v-model.trim="form.imageUrl" @change="useUrl"
-               placeholder="或粘贴图片地址：http://…">
-        <p class="mc-hint">支持 jpg / png / webp，单张不超过 5MB</p>
-        <p class="mc-form-error" v-if="errors.imageUrl">{{ errors.imageUrl }}</p>
+        <input class="fm-input mc-picker-url" v-model.trim="urlDraft" @change="addUrl" @keyup.enter="addUrl"
+               :disabled="!form || form.images.length >= maxImages"
+               placeholder="或粘贴图片地址后回车添加">
+        <p class="mc-hint">支持 jpg / png / webp / gif，单张不超过 5MB</p>
+        <p class="mc-form-error" v-if="errors.images">{{ errors.images }}</p>
       </div>
 
       <div class="fm-field">
@@ -745,19 +910,23 @@ const McMembers = {
       </div>
       <div class="fm-card mc-member" v-for="member in members" :key="member.id">
         <div class="mc-member-head">
-          <div>
+          <div class="mc-avatar" aria-hidden="true">{{ String(member.nickname || '会').slice(0, 1) }}</div>
+          <div class="mc-member-id">
             <b>{{ member.nickname }}</b>
-            <p class="fm-muted">{{ member.phone }}</p>
+            <p class="mc-member-phone">{{ member.phone }}</p>
           </div>
           <div class="mc-member-money">
-            <b class="fm-price-sm">{{ fmtMoney(member.balanceCents) }}</b>
-            <span class="fm-muted">{{ member.points }} 积分</span>
+            <b class="mc-member-balance">{{ fmtMoney(member.balanceCents) }}</b>
+            <span class="mc-member-points">{{ member.points }} 积分</span>
           </div>
         </div>
-        <p class="fm-muted">预约 {{ member.orderCount }} 笔 · 累计消费 {{ fmtMoney(member.totalSpentCents) }}</p>
+        <div class="mc-member-stats">
+          <span>预约 <b>{{ member.orderCount }}</b> 笔</span>
+          <span>累计消费 <b>{{ fmtMoney(member.totalSpentCents) }}</b></span>
+        </div>
         <div class="mc-member-actions">
           <button class="fm-btn fm-btn-sm fm-btn-primary" @click="openBalance(member)">调整余额</button>
-          <button class="fm-btn fm-btn-sm" @click="openDetail(member)">明细</button>
+          <button class="fm-btn fm-btn-sm mc-act" @click="openDetail(member)">明细</button>
         </div>
       </div>
     </div>
@@ -971,10 +1140,15 @@ const McMore = {
   template: `
   <div>
     <header class="fm-navbar"><div class="fm-navbar-title">更多</div></header>
-    <div class="fm-chips">
-      <button :class="['fm-chip', tab === 'notice' ? 'active' : '']" @click="tab = 'notice'">公告 {{ notices.length }}</button>
-      <button :class="['fm-chip', tab === 'prize' ? 'active' : '']" @click="tab = 'prize'">奖品 {{ prizes.length }}</button>
-      <button :class="['fm-chip', tab === 'exchange' ? 'active' : '']" @click="tab = 'exchange'">兑换 {{ redemptions.length }}</button>
+    <div class="fm-section mc-segwrap">
+      <div class="fm-seg" role="tablist" aria-label="内容分类">
+        <button :class="['fm-seg-btn', tab === 'notice' ? 'is-on' : '']" role="tab"
+                :aria-selected="tab === 'notice'" @click="tab = 'notice'">公告 {{ notices.length }}</button>
+        <button :class="['fm-seg-btn', tab === 'prize' ? 'is-on' : '']" role="tab"
+                :aria-selected="tab === 'prize'" @click="tab = 'prize'">奖品 {{ prizes.length }}</button>
+        <button :class="['fm-seg-btn', tab === 'exchange' ? 'is-on' : '']" role="tab"
+                :aria-selected="tab === 'exchange'" @click="tab = 'exchange'">兑换 {{ redemptions.length }}</button>
+      </div>
     </div>
     <div class="fm-section">
       <div v-if="loading" class="fm-section">
@@ -985,13 +1159,13 @@ const McMore = {
           <div class="mc-toolbar">
             <button class="fm-btn fm-btn-sm fm-btn-primary" @click="openNoticeCreate">+ 发布公告</button>
           </div>
-          <div class="fm-card" v-for="item in notices" :key="item.id">
-            <b>{{ item.title }}</b>
-            <p class="fm-muted" style="margin:6px 0 0">{{ item.content }}</p>
-            <p class="fm-muted">{{ item.createdAt }}</p>
+          <div class="fm-card mc-notice" v-for="item in notices" :key="item.id">
+            <b class="mc-notice-title">{{ item.title }}</b>
+            <p class="mc-notice-body">{{ item.content }}</p>
+            <p class="mc-notice-date">{{ item.createdAt }}</p>
             <div class="mc-card-actions">
               <button class="fm-btn fm-btn-sm" @click="openNoticeEdit(item)">编辑</button>
-              <button class="fm-btn fm-btn-sm fm-btn-danger" @click="removeNotice(item)">删除</button>
+              <button class="fm-btn fm-btn-sm mc-act is-danger" @click="removeNotice(item)">删除</button>
             </div>
           </div>
           <div class="fm-empty" v-if="!notices.length"><p>还没有发布公告</p><p>点上面的「发布公告」，顾客会在会员端首页看到</p></div>
@@ -1014,9 +1188,9 @@ const McMore = {
                 {{ prize.status === 'on' ? '可兑换' : '已下架' }}
               </span>
               <div class="mc-row-actions">
-                <button class="fm-btn fm-btn-sm" @click="togglePrize(prize)">{{ prize.status === 'on' ? '下架' : '上架' }}</button>
                 <button class="fm-btn fm-btn-sm" @click="openPrizeEdit(prize)">编辑</button>
-                <button class="fm-btn fm-btn-sm fm-btn-danger" @click="removePrize(prize)">删除</button>
+                <button class="fm-btn fm-btn-sm mc-act" @click="togglePrize(prize)">{{ prize.status === 'on' ? '下架' : '上架' }}</button>
+                <button class="fm-btn fm-btn-sm mc-act is-danger" @click="removePrize(prize)">删除</button>
               </div>
             </div>
           </div>
@@ -1035,7 +1209,7 @@ const McMore = {
             <p class="fm-muted">{{ item.createdAt }}</p>
             <div class="mc-card-actions" v-if="item.status === 'pending'">
               <button class="fm-btn fm-btn-sm fm-btn-primary" @click="issue(item)">确认发放</button>
-              <button class="fm-btn fm-btn-sm fm-btn-danger" @click="cancelRedemption(item)">取消并退积分</button>
+              <button class="fm-btn fm-btn-sm mc-act is-danger" @click="cancelRedemption(item)">取消并退积分</button>
             </div>
           </div>
           <div class="fm-empty" v-if="!redemptions.length"><p>还没有兑换记录</p><p>顾客用积分兑换商品后，会记录在这里</p></div>
@@ -1137,18 +1311,18 @@ const McAuth = {
   },
   template: `
   <div class="fm-auth">
-    <div class="fm-auth-logo" style="background:linear-gradient(135deg,#2f9e5f,#63b86b)"></div>
-    <h1>果子来了</h1>
-    <p class="fm-auth-sub">商户工作台 · 管理商品上下架、会员余额、预约订单与门店公告</p>
+    <div class="mc-auth-logo" aria-hidden="true"><span class="mc-auth-logo-mark">果</span></div>
+    <h1 class="mc-auth-title">果子来了</h1>
+    <p class="mc-auth-sub">商户工作台 · 管理商品上下架、会员余额、预约订单与门店公告</p>
     <div class="fm-field">
       <label class="fm-label">商户手机号</label>
       <input class="fm-input" type="tel" maxlength="11" v-model.trim="form.phone" placeholder="请输入商户账号">
     </div>
     <div class="fm-field">
       <label class="fm-label">密码</label>
-      <input class="fm-input" type="password" v-model="form.password">
+      <input class="fm-input" type="password" v-model="form.password" placeholder="请输入密码">
     </div>
-    <button class="fm-btn fm-btn-leaf fm-btn-block fm-btn-lg" :disabled="submitting" @click="submit">
+    <button class="fm-btn fm-btn-primary fm-btn-block fm-btn-lg" :disabled="submitting" @click="submit">
       {{ submitting ? '登录中…' : '登录' }}
     </button>
     <div class="fm-demo">
@@ -1237,11 +1411,17 @@ const App = {
  *   ✅ P1 订单批量处理：订单页「批量」进入多选态，全选 + 批量确认 / 批量完成
  *      后端只有单条接口，前端逐条循环，单条失败不影响其它单，结束后汇总提示
  *
- * 待办（按优先级）——以下三条都卡在后端接口，不在前端
- * P0 商品主图真正上传：需 POST /merchant/upload（multipart，字段名 file，返回 { url }）
- *      （前端接线口已留好：McProducts.uploadImage()，接口一到位即可跑通，UI 不用改）
- * P2 概览页加营收趋势图（需后端补 /merchant/stats/trend 提供按天营收）
- * P2 订单列表支持按日期筛选（需后端 /orders 增加 dateFrom/dateTo 参数）
+ * 本轮已完成（第三批：后端 2026-11-04 补齐三个接口后接线）
+ *   ✅ P0 商品主图真正上传：POST /merchant/upload（multipart，字段名 file，返回 { url }）
+ *      共享层的 api.post 强制 JSON、传不了文件，所以这里用原生 fetch + FormData 单独发；
+ *      成功后把返回的 url 写回 imageUrl，仍保留「粘贴直链」兜底
+ *   ✅ P2 营收趋势图：GET /merchant/stats?days=7|30 的返回里多了 revenueTrend，
+ *      纯 CSS 柱状图渲染，不引图表库（项目没有构建步骤）
+ *   ✅ P2 订单按日期筛选：GET /orders 增加 dateFrom/dateTo（YYYY-MM-DD，含首尾两天）
+ *
+ * 仍然做不了的（后端交接文档 P1 所列，不是前端能单方面解决的）
+ *   列表分页（接口全量返回，/orders 与 /redemptions 硬上限 300 条）
+ *   登录态自动续期（令牌无过期时间，需要后端先支持）
  *
  * 只允许改：mobile/merchant/**。共享层 mobile/shared/** 只读，
  * 需要新增通用能力请先在群里同步，不要复制一份改过的共享层副本。
