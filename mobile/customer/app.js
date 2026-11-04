@@ -8,19 +8,19 @@ const CustomerAPI = {
     if (filters.keyword) query.set('keyword', filters.keyword);
     if (filters.category && filters.category !== '全部') query.set('category', filters.category);
     const encoded = query.toString();
-    return api.get('/products' + (encoded ? '?' + encoded : ''));
+    return customerRequest('get', '/products' + (encoded ? '?' + encoded : ''));
   },
-  product: id => api.get('/products/' + encodeURIComponent(id)),
-  announcements: () => api.get('/announcements'),
-  orders: (status = 'all') => api.get('/orders?status=' + encodeURIComponent(status)),
-  order: id => api.get('/orders/' + encodeURIComponent(id)),
-  reserve: payload => api.post('/orders', payload),
-  cancel: id => api.post('/orders/' + encodeURIComponent(id) + '/cancel'),
-  prizes: () => api.get('/prizes'),
-  redemptions: () => api.get('/redemptions'),
-  redeem: prizeId => api.post('/redemptions', { prizeId }),
-  me: () => api.get('/auth/me'),
-  profile: nickname => api.post('/auth/profile', { nickname }),
+  product: id => customerRequest('get', '/products/' + encodeURIComponent(id)),
+  announcements: () => customerRequest('get', '/announcements'),
+  orders: (status = 'all') => customerRequest('get', '/orders?status=' + encodeURIComponent(status)),
+  order: id => customerRequest('get', '/orders/' + encodeURIComponent(id)),
+  reserve: payload => customerRequest('post', '/orders', payload),
+  cancel: id => customerRequest('post', '/orders/' + encodeURIComponent(id) + '/cancel'),
+  prizes: () => customerRequest('get', '/prizes'),
+  redemptions: () => customerRequest('get', '/redemptions'),
+  redeem: prizeId => customerRequest('post', '/redemptions', { prizeId }),
+  me: () => customerRequest('get', '/auth/me'),
+  profile: nickname => customerRequest('post', '/auth/profile', { nickname }),
   login: (phone, password) => api.login(phone, password),
   register: (phone, password, nickname) => api.register(phone, password, nickname),
   logout: () => api.logout(),
@@ -46,16 +46,37 @@ function resolve(path) {
   }
   return { route: ROUTES[0], params: {} };
 }
-function loginFor(path) { router.navigate('/auth?from=' + encodeURIComponent(path)); }
+function loginFor(path) {
+  const encoded = encodeURIComponent(path);
+  // 共享路由先解码再分割 '?'，含查询参数的来路需多保护一层。
+  router.navigate('/auth?from=' + (path.includes('?') ? encodeURIComponent(encoded) : encoded));
+}
+
+// 共享层负责识别 HTTP 401 并清令牌；客户端补充页面跳转，不改共享层。
+async function customerRequest(method, path, payload) {
+  const token = Auth.token;
+  try { return await api[method](path, payload); }
+  catch (error) {
+    if (token && !Auth.token && !Auth.user && R.path !== '/auth') {
+      const query = new URLSearchParams(R.query).toString();
+      loginFor(R.path + (query ? '?' + query : ''));
+    }
+    throw error;
+  }
+}
+
 function localDateTime(d = new Date()) {
   const p = n => String(n).padStart(2, '0');
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
 }
 function defaultPickup() { const d = new Date(); d.setDate(d.getDate() + 1); d.setHours(10, 0, 0, 0); return localDateTime(d); }
-function recordOrders(orders) {
+function syncAlertUser() {
   const key = Auth.user ? String(Auth.user.id || Auth.user.phone) : '';
   if (Alerts.userKey !== key) { Alerts.ids = []; Alerts.statuses = {}; Alerts.userKey = key; }
-  if (!key) return;
+  return key;
+}
+function recordOrders(orders) {
+  if (!syncAlertUser()) return;
   const confirmed = orders.filter(o => o.status === 'confirmed').map(o => o.id);
   Alerts.ids = Alerts.ids.filter(id => confirmed.includes(id));
   orders.forEach(o => {
@@ -64,6 +85,7 @@ function recordOrders(orders) {
   });
 }
 function readOrder(id, status) {
+  if (!syncAlertUser()) return;
   if (status) Alerts.statuses[id] = status;
   Alerts.ids = Alerts.ids.filter(value => String(value) !== String(id));
 }
@@ -197,7 +219,7 @@ const CtDetail = {
       if (!Auth.user) { loginFor('/product/' + this.id); return; }
       if (!this.quantityValid) { FM.toast('请输入库存范围内的整数数量', 'danger'); return; }
       if (this.form.pickupTime && (!Number.isFinite(new Date(this.form.pickupTime).getTime()) || new Date(this.form.pickupTime) < new Date())) { FM.toast('请选择未来的取货时间', 'danger'); return; }
-      if (this.form.payMethod === 'balance' && Auth.user.balanceCents < this.totalCents) { FM.toast('余额不足，请改用到店支付', 'danger'); return; }
+      // 缓存余额可能早于商户充值；以提交接口的实时余额校验为准。
       this.submitting = true;
       try {
         const data = await CustomerAPI.reserve({ productId: this.product.id, quantity: Number(this.form.quantity), pickupTime: this.form.pickupTime.replace('T', ' '), payMethod: this.form.payMethod, note: this.form.note });
@@ -224,6 +246,10 @@ const orderActions = {
   },
 };
 const cancelDialog = `<ct-confirm v-if="target" title="取消这次预约？" :busy="busy" @close="target = null" @confirm="cancel"><p>预约号 {{ target.orderNo }}</p><p class="fm-muted">取消后将释放商品库存；如果使用余额支付，款项会退回账户。</p></ct-confirm>`;
+const CtOrdersGuest = {
+  methods: { ...common, login() { loginFor('/orders'); } },
+  template: `<div><ct-header title="我的预约" subtitle="每一份新鲜，都有着落"/><div class="fm-section ct-orders-guest"><ct-empty title="登录后查看你的预约" text="登录会员账户，查看预约记录与取货进度。" icon="calendar-event"><button class="fm-btn fm-btn-primary" @click="login">去登录<ct-icon name="arrow-right"/></button><button class="ct-guest" @click="navigate('/')">先去挑水果<ct-icon name="arrow-right"/></button></ct-empty></div></div>`,
+};
 const CtOrders = {
   data() { return { Alerts, orders: [], status: 'all', loading: true, error: '', target: null, busy: false, requestId: 0 }; },
   created() { this.load(); },
@@ -260,7 +286,7 @@ const CtPoints = {
       try { const data = await CustomerAPI.prizes(); this.prizes = data.prizes || []; if (Auth.user) { await refreshAccount(); if (Auth.user) this.redemptions = (await CustomerAPI.redemptions()).redemptions || []; } }
       catch (e) { this.error = e.message; } finally { this.loading = false; }
     },
-    ask(prize) { if (!Auth.user) { loginFor('/points'); return; } if (prize.stock <= 0) return; if (Auth.user.points < prize.costPoints) { FM.toast('还差 ' + (prize.costPoints - Auth.user.points) + ' 积分，完成预约可攒积分', 'danger'); return; } this.target = prize; },
+    ask(prize) { if (!Auth.user) { loginFor('/points'); return; } if (prize.stock <= 0) return; /* 积分可能刚由商户发放，以兑换接口的实时校验为准。 */ this.target = prize; },
     async confirm() {
       if (this.busy || !this.target) return; this.busy = true;
       try { await CustomerAPI.redeem(this.target.id); this.target = null; await refreshAccount(); FM.toast('兑换成功，请到门店领取'); await this.load(); }
@@ -290,6 +316,7 @@ const CtMe = {
 };
 const CtAuth = {
   data() { return { mode: 'login', form: { phone: '', password: '', confirm: '', nickname: '' }, submitting: false, showPassword: false }; },
+  computed: { backTarget() { return R.query.from === '/orders' ? '/orders' : '/'; } },
   methods: {
     ...common,
     fill() { this.form.phone = '13900000001'; this.form.password = '123456'; },
@@ -309,13 +336,17 @@ const CtAuth = {
       } catch (e) { FM.toast(e.message, 'danger'); } finally { this.submitting = false; }
     },
   },
-  template: `<div><ct-header title="果子来了" back="/"/><main class="ct-auth"><div class="ct-auth-brand"><ct-icon name="leaf"/></div><span class="ct-eyebrow">新鲜生活，从这里开始</span><h2>{{ mode === 'login' ? '好久不见，果友。' : '欢迎成为果友。' }}</h2><p class="ct-auth-sub">登录后预约鲜果，把每一份喜欢攒成积分。</p><div class="ct-auth-tabs"><button :class="{active: mode === 'login'}" @click="mode = 'login'" :disabled="submitting" :aria-pressed="mode === 'login'">会员登录</button><button :class="{active: mode === 'register'}" @click="mode = 'register'" :disabled="submitting" :aria-pressed="mode === 'register'">注册账户</button></div><form @submit.prevent="submit"><div class="fm-field"><label class="fm-label" for="ct-phone">手机号</label><input id="ct-phone" class="fm-input" type="tel" inputmode="numeric" autocomplete="tel" pattern="1[3-9][0-9]{9}" maxlength="11" v-model.trim="form.phone" placeholder="请输入 11 位手机号" required></div><div class="fm-field" v-if="mode === 'register'"><label class="fm-label" for="ct-register-name">昵称（选填）</label><input id="ct-register-name" class="fm-input" maxlength="32" autocomplete="nickname" v-model.trim="form.nickname" placeholder="怎么称呼你？"></div><div class="fm-field"><label class="fm-label" for="ct-password">密码</label><div class="ct-password"><input id="ct-password" class="fm-input" :type="showPassword ? 'text' : 'password'" :autocomplete="mode === 'login' ? 'current-password' : 'new-password'" minlength="6" maxlength="64" v-model="form.password" placeholder="至少 6 位密码" required><button type="button" @click="showPassword = !showPassword" :aria-pressed="showPassword">{{ showPassword ? '隐藏' : '显示' }}</button></div></div><div class="fm-field" v-if="mode === 'register'"><label class="fm-label" for="ct-confirm-password">确认密码</label><input id="ct-confirm-password" class="fm-input" type="password" autocomplete="new-password" minlength="6" maxlength="64" v-model="form.confirm" placeholder="再次输入密码" required></div><button class="fm-btn fm-btn-primary fm-btn-block fm-btn-lg" :disabled="submitting" type="submit">{{ submitting ? '提交中…' : (mode === 'login' ? '登录，开启鲜果时刻' : '注册并登录') }}<ct-icon name="arrow-right"/></button></form><button class="ct-guest" @click="navigate('/')">先逛逛鲜果<ct-icon name="arrow-right"/></button><details class="ct-demo"><summary>演示账户</summary><p>13900000001 / 123456</p><button class="fm-btn fm-btn-sm" @click="fill">填入演示账号</button></details></main></div>`,
+  template: `<div><ct-header title="果子来了" :back="backTarget"/><main class="ct-auth"><div class="ct-auth-brand"><ct-icon name="leaf"/></div><span class="ct-eyebrow">新鲜生活，从这里开始</span><h2>{{ mode === 'login' ? '好久不见，果友。' : '欢迎成为果友。' }}</h2><p class="ct-auth-sub">登录后预约鲜果，把每一份喜欢攒成积分。</p><div class="ct-auth-tabs"><button :class="{active: mode === 'login'}" @click="mode = 'login'" :disabled="submitting" :aria-pressed="mode === 'login'">会员登录</button><button :class="{active: mode === 'register'}" @click="mode = 'register'" :disabled="submitting" :aria-pressed="mode === 'register'">注册账户</button></div><form @submit.prevent="submit"><div class="fm-field"><label class="fm-label" for="ct-phone">手机号</label><input id="ct-phone" class="fm-input" type="tel" inputmode="numeric" autocomplete="tel" pattern="1[3-9][0-9]{9}" maxlength="11" v-model.trim="form.phone" placeholder="请输入 11 位手机号" required></div><div class="fm-field" v-if="mode === 'register'"><label class="fm-label" for="ct-register-name">昵称（选填）</label><input id="ct-register-name" class="fm-input" maxlength="32" autocomplete="nickname" v-model.trim="form.nickname" placeholder="怎么称呼你？"></div><div class="fm-field"><label class="fm-label" for="ct-password">密码</label><div class="ct-password"><input id="ct-password" class="fm-input" :type="showPassword ? 'text' : 'password'" :autocomplete="mode === 'login' ? 'current-password' : 'new-password'" minlength="6" maxlength="64" v-model="form.password" placeholder="至少 6 位密码" required><button type="button" @click="showPassword = !showPassword" :aria-pressed="showPassword">{{ showPassword ? '隐藏' : '显示' }}</button></div></div><div class="fm-field" v-if="mode === 'register'"><label class="fm-label" for="ct-confirm-password">确认密码</label><input id="ct-confirm-password" class="fm-input" type="password" autocomplete="new-password" minlength="6" maxlength="64" v-model="form.confirm" placeholder="再次输入密码" required></div><button class="fm-btn fm-btn-primary fm-btn-block fm-btn-lg" :disabled="submitting" type="submit">{{ submitting ? '提交中…' : (mode === 'login' ? '登录，开启鲜果时刻' : '注册并登录') }}<ct-icon name="arrow-right"/></button></form><button class="ct-guest" @click="navigate('/')">先逛逛鲜果<ct-icon name="arrow-right"/></button><details class="ct-demo"><summary>演示账户</summary><p>13900000001 / 123456</p><button class="fm-btn fm-btn-sm" @click="fill">填入演示账号</button></details></main></div>`,
 };
 const TABS = [{ path: '/', label: '首页', icon: 'home' }, { path: '/orders', label: '预约', icon: 'calendar-event' }, { path: '/points', label: '积分', icon: 'gift' }, { path: '/me', label: '我的', icon: 'user' }];
 const App = {
   data() { return { Auth, R, Alerts, resolved: { route: ROUTES[0], params: {} }, tabs: TABS, polling: false }; },
   computed: {
-    view() { return this.resolved.route.auth && !Auth.user ? 'ct-auth' : this.resolved.route.view; },
+    view() {
+      const route = this.resolved.route;
+      if (route.auth && !Auth.user) return route.name === 'orders' ? 'ct-orders-guest' : 'ct-auth';
+      return route.view;
+    },
     showTab() { return TABS.some(t => t.path === R.path); },
     authKey() { return Auth.user ? String(Auth.user.id || Auth.user.phone) : ''; },
   },
@@ -338,6 +369,6 @@ const App = {
   await api.loadMe();
   const app = Vue.createApp(App);
   Object.entries({ 'ct-icon': CtIcon, 'ct-header': CtHeader, 'ct-image': CtImage, 'ct-skeleton': CtSkeleton, 'ct-empty': CtEmpty, 'ct-error': CtError, 'ct-confirm': CtConfirm,
-    'ct-home': CtHome, 'ct-detail': CtDetail, 'ct-orders': CtOrders, 'ct-order-detail': CtOrderDetail, 'ct-points': CtPoints, 'ct-ledger': CtLedger, 'ct-me': CtMe, 'ct-auth': CtAuth }).forEach(([name, component]) => app.component(name, component));
+    'ct-home': CtHome, 'ct-detail': CtDetail, 'ct-orders-guest': CtOrdersGuest, 'ct-orders': CtOrders, 'ct-order-detail': CtOrderDetail, 'ct-points': CtPoints, 'ct-ledger': CtLedger, 'ct-me': CtMe, 'ct-auth': CtAuth }).forEach(([name, component]) => app.component(name, component));
   app.mount('#app');
 })();

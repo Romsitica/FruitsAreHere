@@ -88,7 +88,16 @@ const output = process.env.QA_OUTPUT || require('node:os').tmpdir();
     await checkLayout(); await capture('customer-home-dark.png');
     await page.emulateMedia({ reducedMotion: 'reduce' });
     assert.equal(await page.locator('.ct-goods').first().evaluate(el => getComputedStyle(el).transitionDuration), '0s');
+    const missing = await context.request.get(origin + '/api/no-such-customer-endpoint');
+    assert.equal(missing.status(), 404);
+    assert.deepEqual(await missing.json(), { ok: false, error: '接口不存在' });
+    // 在页面保持登录时由服务端撤销令牌，验证业务请求 401 的真实跳转。
+    await api('/auth/logout', {}, token);
+    await page.getByRole('button', { name: '积分兑换', exact: true }).click();
+    await page.locator('#ct-phone').waitFor();
+    assert.equal(await page.evaluate(() => localStorage.getItem('fm_customer_token')), null);
+    assert.equal(new URLSearchParams(decodeURIComponent(page.url().split('#')[1]).split('?')[1]).get('from'), '/points');
     assert.deepEqual(errors, []);
-    console.log('PASS: browse/search, 320/390/480/1024 layouts, guest return, balance checkout/refund/stock, merchant confirmation, completion points, redemption, ledger, profile, dark mode, reduced motion; no page errors');
+    console.log('PASS: browse/search, 320/390/480/1024 layouts, guest return, balance checkout/refund/stock, merchant confirmation, completion points, redemption, ledger, profile, dark mode, reduced motion, JSON 404, revoked-token 401 login redirect; no page errors');
   } finally { await browser.close(); }
 })().catch(e => { console.error(e); process.exitCode = 1; });
